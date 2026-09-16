@@ -93,6 +93,42 @@ data through the desktop client. The transfer module provides:
 - Import/export dialog integration in the GUI.
 - Dedicated unit tests covering document parsing and batch writing behavior.
 
+The transfer pipeline avoids unnecessary type conversion when working with
+MongoDB values such as ObjectId, dates, Decimal128 and binary data.
+
+## Query editor improvements
+
+The query workspace provides a richer mongosh-aware editing experience:
+
+- Added autocomplete support for fields, nested paths, collections, methods,
+  operators and aggregation syntax.
+- Improved completion handling for quoted keys, Unicode characters and existing
+  function calls.
+- Added delimiter pairing and structured newline indentation support.
+- Improved editor state handling when moving the cursor, cancelling completion,
+  or editing while asynchronous suggestions are pending.
+- Query input height follows multiline content while preserving splitter resize
+  behavior, with automatic expansion limited to 18 visible lines.
+
+## GUI and testing updates
+
+Additional UI components and regression coverage include:
+
+- Field value editor for safer document editing workflows.
+- Updated result and explorer interactions.
+- Expanded GUI tests for query editing, layout behavior and editor workflows.
+- Added data transfer tests for JSON parsing and batch operations.
+
+## Data transfer
+
+The application includes a MongoDB data transfer workflow for moving JSON-based
+data through the desktop client. The transfer module provides:
+
+- Extended JSON document reading with BSON type preservation.
+- Batch document writing with controlled insert flow.
+- Import/export dialog integration in the GUI.
+- Dedicated unit tests covering document parsing and batch writing behavior.
+
 The transfer pipeline is designed to avoid unnecessary type conversion when
 working with MongoDB values such as ObjectId, dates, Decimal128 and binary data.
 
@@ -134,11 +170,13 @@ Drag the divider above the results to resize it; result views resize on release.
 
 Autocomplete uses the surrounding query to suggest collection fields, nested
 paths, methods, and query/update/aggregation operators. Automatic suggestions
-start after a member-access dot, inside an object after its opening brace or a
-field separator, and inside field/collection quotes. Only text input triggers
+also include global names such as `rs`, `sh`, `ObjectId` and `print`, and members
+such as `rs.status()` and `sh.enableSharding()`. Suggestions start while typing
+an identifier, after a member-access dot, inside an object after its opening
+brace or a field separator, and inside field/collection quotes. Only text input triggers
 automatic suggestions; inserting a newline, deleting text or moving the caret
-cancels pending suggestions. Closed delimiters and bare value/identifier input do not open
-automatic global suggestions. The completion shortcut still works explicitly;
+cancels pending suggestions. Closed delimiters, comments and literal strings do
+not trigger global suggestions. The completion shortcut still works explicitly;
 accept with Enter/Tab and dismiss with Escape. Accepting a function inserts `()`
 with the caret inside, reusing existing parentheses and preserving arguments.
 Field, operator and string candidates use double quotes; accepting one replaces
