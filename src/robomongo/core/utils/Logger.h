@@ -3,8 +3,9 @@
 #include <QObject>
 #include <QString>
 #include <string>
+#include <string_view>
 
-#include <mongo/logger/log_severity.h>
+#include "robomongo/core/utils/LogSeverity.h"
 
 #include "robomongo/core/events/MongoEvents.h"
 #include "robomongo/core/utils/SingletonPattern.hpp"

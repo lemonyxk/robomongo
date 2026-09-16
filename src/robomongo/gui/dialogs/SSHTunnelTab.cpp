@@ -1,10 +1,11 @@
 #include "robomongo/gui/dialogs/SSHTunnelTab.h"
 
+#include <QRegularExpression>
 #include <QApplication>
 #include <QLabel>
 #include <QLineEdit>
 #include <QGridLayout>
-#include <QRegExpValidator>
+#include <QRegularExpressionValidator>
 #include <QCheckBox>
 #include <QPushButton>
 #include <QFileDialog>
@@ -47,13 +48,14 @@ namespace Robomongo
         _userName = new QLineEdit(QtUtils::toQString(info->userName()));
 
         _sshPort = new QLineEdit(QString::number(info->port()));
-        _sshPort->setFixedWidth(40);
-        QRegExp rx("\\d+"); //(0-65554)
-        _sshPort->setValidator(new QRegExpValidator(rx, this));        
+        // Include the themed input padding so all five port digits remain visible.
+        _sshPort->setFixedWidth(qMax(72, _sshPort->fontMetrics().horizontalAdvance(QStringLiteral("65535")) + 24));
+        QRegularExpression rx("\\d+"); //(0-65554)
+        _sshPort->setValidator(new QRegularExpressionValidator(rx, this));
 
         _security = new QComboBox();
         _security->addItems(QStringList() << "Password" << "Private Key");
-        VERIFY(connect(_security, SIGNAL(currentIndexChanged(const QString&)), this, SLOT(securityChange(const QString&))));
+        VERIFY(connect(_security, SIGNAL(currentTextChanged(const QString&)), this, SLOT(securityChange(const QString&))));
 
         _passwordBox = new QLineEdit(QtUtils::toQString(info->userPassword()));
         _passwordBox->setEchoMode(QLineEdit::Password);
@@ -85,12 +87,12 @@ namespace Robomongo
 // https://github.com/paralect/robomongo/issues/391
 
 #ifdef Q_OS_WIN
-        QRegExp pathx("([a-zA-Z]:)?([\\\\/][a-zA-Z0-9_.-]+)+[\\\\/]?");
+        QRegularExpression pathx("([a-zA-Z]:)?([\\\\/][a-zA-Z0-9_.-]+)+[\\\\/]?");
 #else
-        QRegExp pathx("^\\/?([\\d\\w\\.]+)(/([\\d\\w\\.]+))*\\/?$");
+        QRegularExpression pathx("^\\/?([\\d\\w\\.]+)(/([\\d\\w\\.]+))*\\/?$");
 #endif // Q_OS_WIN
-        _publicKeyBox->setValidator(new QRegExpValidator(pathx, this));
-        _privateKeyBox->setValidator(new QRegExpValidator(pathx, this));
+        _publicKeyBox->setValidator(new QRegularExpressionValidator(pathx, this));
+        _privateKeyBox->setValidator(new QRegularExpressionValidator(pathx, this));
 */
 
         QHBoxLayout *hostAndPasswordLayout = new QHBoxLayout;

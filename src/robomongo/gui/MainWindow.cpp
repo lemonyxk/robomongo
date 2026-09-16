@@ -1,6 +1,7 @@
 #include "robomongo/gui/MainWindow.h"
 
 #include <QApplication>
+#include <QActionGroup>
 #include <QToolButton>
 #include <QMessageBox>
 #include <QWidgetAction>
@@ -10,7 +11,7 @@
 #include <QToolBar>
 #include <QToolTip>
 #include <QDockWidget>
-#include <QDesktopWidget>
+#include <QScreen>
 #include <QTimer>
 #include <QPushButton>
 #include <QLabel>
@@ -22,9 +23,8 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrl>
-#include <QTextDocument>
 
-#include <mongo/logger/log_severity.h>
+#include "robomongo/core/utils/LogSeverity.h"
 #include "robomongo/core/settings/SettingsManager.h"
 #include "robomongo/core/settings/SshSettings.h"
 #include "robomongo/core/domain/MongoServer.h"
@@ -134,25 +134,14 @@ namespace Robomongo
 #endif
         _allowExit(false)
      {
-        QColor background = palette().window().color();
         QString controlKey = "Ctrl";
 
     #if defined(Q_OS_MAC)
-        QString explorerColor = "#EFEFEF"; // was #CED6DF"
         controlKey = QChar(0x2318); // "Command" key aka Cauliflower
         setUnifiedTitleAndToolBarOnMac(true);
-    #elif defined(Q_OS_LINUX)
-        QString explorerColor = background.darker(103).name();
-    #else
-        QString explorerColor = background.lighter(103).name();
     #endif
 
-        qApp->setStyleSheet(QString(
-            "QWidget#queryWidget { background-color:#E7E5E4; margin: 0px; padding:0px; } \n"
-            "Robomongo--ExplorerTreeWidget#explorerTree { padding: 1px 0px 0px 0px; background-color: %1; border: 0px; } \n"
-            "QMainWindow::separator { background: #E7E5E4; width: 1px; } \n"
-            "QMessageBox { messagebox-text-interaction-flags: 5; }"  // Make QMessageBox text selectable
-        ).arg(explorerColor));
+        setDockOptions(dockOptions() & ~QMainWindow::AnimatedDocks);
         _openAction = new QAction(GuiRegistry::instance().openIcon(), tr("&Open..."), this);
         _openAction->setToolTip(QString("Load script from the file to the currently opened shell <b>(%1 + O)</b>").arg(controlKey));
         _openAction->setShortcuts(QKeySequence::Open);
@@ -472,14 +461,14 @@ namespace Robomongo
     #if !defined(Q_OS_MAC)
         fullScreenAction->setShortcut(Qt::Key_F11);
     #else
-        fullScreenAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_F11));
+        fullScreenAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F11));
     #endif
         fullScreenAction->setVisible(true);
         VERIFY(connect(fullScreenAction, SIGNAL(triggered()), this, SLOT(toggleFullScreen2())));
 
         // Minimize window
         QAction *minimizeAction = new QAction("&Minimize", this);
-        minimizeAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_M));
+        minimizeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_M));
         minimizeAction->setVisible(true);
         VERIFY(connect(minimizeAction, SIGNAL(triggered()), this, SLOT(showMinimized())));
 
@@ -497,13 +486,13 @@ namespace Robomongo
 
         // Reload action (currently a re-execute, as does not "reload" files per issue #447)
         QAction *reloadAction = new QAction("Re-execute Query in Current Tab", this);
-        reloadAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_R));
+        reloadAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
         reloadAction->setVisible(true);
         VERIFY(connect(reloadAction, SIGNAL(triggered()), SLOT(executeScript())));
 
         // Duplicate tab action
         QAction *duplicateAction = new QAction("Duplicate Query in New Tab", this);
-        duplicateAction->setShortcut(Qt::CTRL + Qt::SHIFT + Qt::Key_T);
+        duplicateAction->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_T);
         duplicateAction->setVisible(true);
         VERIFY(connect(duplicateAction, SIGNAL(triggered()), SLOT(duplicateTab())));
 
@@ -520,17 +509,13 @@ namespace Robomongo
         windowMenu->addAction(duplicateAction);
         windowMenu->addSeparator();
 
-        auto const& settings { AppRegistry::instance().settingsManager() };
-        if (!settings->disableHttpsFeatures()) {
-            // Open welcome tab action
-            auto openWelcomeTabAction = new QAction("Open/Refresh Welcome Tab", this);
-            openWelcomeTabAction->setShortcut(Qt::CTRL + Qt::SHIFT + Qt::Key_W);
-            openWelcomeTabAction->setVisible(true);
-            VERIFY(connect(openWelcomeTabAction, SIGNAL(triggered()), SLOT(openWelcomeTab())));
-            windowMenu->addAction(openWelcomeTabAction);
-        }        
+        auto openWelcomeTabAction = new QAction("Open Welcome Tab", this);
+        openWelcomeTabAction->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_W);
+        VERIFY(connect(openWelcomeTabAction, SIGNAL(triggered()), SLOT(openWelcomeTab())));
+        windowMenu->addAction(openWelcomeTabAction);
 
-        auto toolbarsSettings = AppRegistry::instance().settingsManager()->toolbars();
+        auto const& settings = AppRegistry::instance().settingsManager();
+        auto toolbarsSettings = settings->toolbars();
 
     /*** About menu ***/
 
@@ -578,7 +563,7 @@ namespace Robomongo
         _updateLabel->setWordWrap(true);
         _updateLabel->setOpenExternalLinks(true);
         _updateLabel->setTextFormat(Qt::TextFormat::RichText);
-        _updateLabel->setIndent(_updateLabel->fontMetrics().width("T"));
+        _updateLabel->setIndent(_updateLabel->fontMetrics().horizontalAdvance("T"));
 
         _closeButton = new QPushButton;
         _closeButton->setIcon(QIcon(":/robomongo/icons/close_hover_16x16.png"));
@@ -592,14 +577,14 @@ namespace Robomongo
         updateBarLay->addWidget(_updateLabel);
         updateBarLay->addWidget(_closeButton, Qt::AlignRight);
         updateBarLay->setSpacing(0);
-        updateBarLay->setMargin(0);
+        updateBarLay->setContentsMargins(0, 0, 0, 0);
 
         auto updateBarWid = new QWidget;
         updateBarWid->setLayout(updateBarLay);
 
         _updateBar = new QToolBar("Updates Toolbar");
         _updateBar->addWidget(updateBarWid);
-        _updateBar->setStyleSheet("background-color: #b3e0ff; border: none;");  // blue
+        _updateBar->setObjectName("updateBar");
         addToolBarBreak();
         addToolBar(_updateBar);
         _updateBar->setHidden(true);
@@ -666,35 +651,13 @@ namespace Robomongo
 
     void MainWindow::createStatusBar()
     {
-        QColor windowColor = palette().window().color();
-        QColor buttonBgColor = windowColor.lighter(105);
-        QColor buttonBorderBgColor = windowColor.darker(112);
-        QColor buttonPressedColor = windowColor.darker(102);
-
         QToolButton *log = new QToolButton(this);
+        log->setObjectName("logsToggle");
         log->setText("Logs");
         log->setCheckable(true);
         log->setDefaultAction(_logDock->toggleViewAction());
-        log->setStyleSheet(QString(
-            "QToolButton {"
-            "   background-color: %1;"
-            "   border-style: outset;"
-            "   border-width: 1px;"
-            "   border-radius: 4px;"
-            "   border-color: %2;"
-            "   padding: 1px 10px 1px 10px;"
-            "} \n"
-            ""
-            "QToolButton:checked, QToolButton:pressed {"
-            "   background-color: %3;"
-            "   border-style: inset;"
-            "}")
-            .arg(buttonBgColor.name())
-            .arg(buttonBorderBgColor.name())
-            .arg(buttonPressedColor.name()));
 
         statusBar()->insertWidget(0, log);
-        statusBar()->setStyleSheet("QStatusBar::item { border: 0px solid black };");
     }
 
     void MainWindow::changeStyle(QAction *ac)
@@ -722,7 +685,7 @@ namespace Robomongo
         else
         {
             // Resize main window. We are trying to keep it "almost" maximized.
-            QRect screenGeometry = QApplication::desktop()->availableGeometry();
+            QRect screenGeometry = screen()->availableGeometry();
             int horizontalMargin = static_cast<int>(screenGeometry.width() * 0.1);
             int verticalMargin = static_cast<int>(screenGeometry.height() * 0.1);
             int _width = screenGeometry.width() - horizontalMargin;
@@ -747,20 +710,16 @@ namespace Robomongo
         if (!AppRegistry::instance().settingsManager()->checkForUpdates() || !_updateBar->isVisible())
             return;
 
-        QTextDocument doc;
-        doc.setHtml(_updateLabel->text());
-        int const strWidth = _updateLabel->fontMetrics().width(doc.toPlainText());
-        int const lineHeight = _updateLabel->fontMetrics().height();
-        int const widthForUpdateStr = width() - _closeButton->width();
-
-        if (0 == widthForUpdateStr)
+        const int labelWidth = _updateLabel->width();
+        if (labelWidth <= 0)
             return;
 
-#ifdef __APPLE__
-        _updateLabel->setFixedHeight((strWidth / widthForUpdateStr + 1) * lineHeight * 1.3);
-#else
-        _updateLabel->setFixedHeight((strWidth / widthForUpdateStr + 1) * lineHeight);
-#endif
+        // QLabel already caches its rich text layout and knows the actual space
+        // left after toolbar padding, the close button, and its own indentation.
+        const int requiredHeight = qMax(_updateLabel->fontMetrics().height(),
+                                         _updateLabel->heightForWidth(labelWidth));
+        if (_updateLabel->height() != requiredHeight)
+            _updateLabel->setFixedHeight(requiredHeight);
     }
 
     void MainWindow::open()
@@ -1265,7 +1224,7 @@ namespace Robomongo
         QAction *actionExp = explorerDock->toggleViewAction();
         // Adjust any parameter you want.  
         actionExp->setText(QString("&Explorer"));
-        actionExp->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_E));  
+        actionExp->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
         actionExp->setStatusTip(QString("Press to show/hide Database Explorer panel."));
         actionExp->setChecked(explorerDock->isVisible());
         VERIFY(connect(actionExp, SIGNAL(triggered(bool)), this, SLOT(onExplorerVisibilityChanged(bool))));
@@ -1285,7 +1244,7 @@ namespace Robomongo
 
         QAction *action = _logDock->toggleViewAction();
         action->setText(QString("&Logs"));
-        action->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_L));  
+        action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
         //action->setStatusTip(QString("Press to show/hide Logs panel."));  //commented for now because this message hides Logs button in status bar :)
         action->setChecked(_logDock->isVisible());
         // Install action in the menu.
@@ -1415,7 +1374,8 @@ namespace Robomongo
 
         _updateLabel->setText(str);
         _updateBar->setVisible(true);
-        adjustUpdatesBarHeight();
+        // Let the toolbar receive its final width before measuring wrapped text.
+        QTimer::singleShot(0, this, [this]() { adjustUpdatesBarHeight(); });
     }
 
     void MainWindow::on_closeButton_clicked()

@@ -1,6 +1,5 @@
 #include "robomongo/gui/widgets/workarea/BsonTableModel.h"
 
-#include <QBrush>
 #include <QIcon>
 
 #include "robomongo/gui/widgets/workarea/BsonTreeItem.h"
@@ -17,90 +16,84 @@ namespace Robomongo
 
     int BsonTableModelProxy::rowCount(const QModelIndex &parent) const
     {
-        int count = sourceModel()->rowCount(parent);
-        return count;
+        return !parent.isValid() && sourceModel() ? sourceModel()->rowCount() : 0;
     }
 
-    QModelIndex BsonTableModelProxy::parent( const QModelIndex& index ) const
+    QModelIndex BsonTableModelProxy::parent(const QModelIndex &) const
     {
-        QModelIndex sourceParent = sourceModel()->parent( mapToSource(index) );
-        return sourceParent;
+        return QModelIndex();
     }
 
     int BsonTableModelProxy::columnCount(const QModelIndex &parent) const
     {
-        return _columns.size();
+        return parent.isValid() ? 0 : static_cast<int>(_columns.size());
     }
 
-    QModelIndex BsonTableModelProxy::mapFromSource( const QModelIndex & sourceIndex ) const
+    QModelIndex BsonTableModelProxy::mapFromSource(const QModelIndex &sourceIndex) const
     {
-        int row = sourceIndex.row();
-        int col = sourceIndex.column();
-
-        BsonTreeItem *node = QtUtils::item<BsonTreeItem *>(sourceIndex);
-        if (!node || _columns.size() <= col)
+        if (!sourceIndex.isValid() || sourceIndex.model() != sourceModel())
             return QModelIndex();
-
-        BsonTreeItem *child = node->childByKey(_columns[col]);
-
-        return createIndex( row, col, child );
-    }
-
-    QModelIndex BsonTableModelProxy::sibling(int row, int column, const QModelIndex &idx) const
-    {
-        return BaseClass::sibling(row, 0, idx);
-    }
-
-    QModelIndex BsonTableModelProxy::index( int row, int col, const QModelIndex& parent ) const
-    {
-        BsonTreeItem *node = QtUtils::item<BsonTreeItem *>(sourceModel()->index(row, 0, parent));
-        if (!node || _columns.size() <= col)
+        const QModelIndex document = sourceIndex.parent();
+        if (!document.isValid())
+            return index(sourceIndex.row(), 0, QModelIndex());
+        // Only the immediate fields of a result document are table columns.
+        if (document.parent().isValid())
             return QModelIndex();
-
-        BsonTreeItem *child = node->childByKey(_columns[col]);
-
-        return createIndex( row, col, child );
+        const auto *node = QtUtils::item<BsonTreeItem *>(sourceIndex);
+        const auto column = _columnIndexes.constFind(node->key());
+        return column == _columnIndexes.constEnd() ? QModelIndex()
+            : index(document.row(), column.value(), QModelIndex());
     }
 
-    QModelIndex BsonTableModelProxy::mapToSource( const QModelIndex &proxyIndex ) const
+    QModelIndex BsonTableModelProxy::sibling(int row, int column, const QModelIndex &) const
     {
-        if ( !proxyIndex.isValid() )
+        return index(row, column, QModelIndex());
+    }
+
+    QModelIndex BsonTableModelProxy::index(int row, int col, const QModelIndex &parent) const
+    {
+        if (parent.isValid() || row < 0 || col < 0 || row >= rowCount()
+            || col >= static_cast<int>(_columns.size()))
             return QModelIndex();
-
-        Q_ASSERT( proxyIndex.model() == this );
-
-        QModelIndex sourceIndex;
-        BsonTreeItem *child = static_cast<BsonTreeItem *>(proxyIndex.internalPointer());
-        if (child) {
-            QtUtils::HackQModelIndex* hack = reinterpret_cast<QtUtils::HackQModelIndex*>(&sourceIndex);
-            BsonTreeItem *parent = static_cast<BsonTreeItem *>(child->parent());
-            hack->r = proxyIndex.row();
-            hack->c = proxyIndex.column();
-            hack->i = parent;
-            hack->m = sourceModel();
-        }
-        return sourceIndex;
+        const QModelIndex document = sourceModel()->index(row, 0);
+        // Fixed-height table rows request only the visible documents. Discovering
+        // column names does not allocate fields or serialize their BSON values.
+        if (sourceModel()->canFetchMore(document))
+            sourceModel()->fetchMore(document);
+        BsonTreeItem *node = QtUtils::item<BsonTreeItem *>(document);
+        return node ? createIndex(row, col, node->childByKey(_columns[col])) : QModelIndex();
     }
 
-    void BsonTableModelProxy::setSourceModel( QAbstractItemModel* model )
+    QModelIndex BsonTableModelProxy::mapToSource(const QModelIndex &proxyIndex) const
     {
+        if (!proxyIndex.isValid() || proxyIndex.model() != this || !sourceModel())
+            return QModelIndex();
+        const auto *child = QtUtils::item<BsonTreeItem *>(proxyIndex);
+        if (!child)
+            return QModelIndex();
+        const QModelIndex document = sourceModel()->index(proxyIndex.row(), 0);
+        return sourceModel()->index(child->row(), BsonTreeItem::eValue, document);
+    }
+
+    void BsonTableModelProxy::setSourceModel(QAbstractItemModel *model)
+    {
+        beginResetModel();
+        _columns.clear();
+        _columnIndexes.clear();
+        BaseClass::setSourceModel(model);
         if (model) {
-            BsonTreeItem *child = QtUtils::item<BsonTreeItem *>(model->index(0, 0));
-            if (child) {
-                _root = qobject_cast<BsonTreeItem *>(child->parent());
-                if (_root) {
-                    int count = _root->childrenCount();
-                    for (int i = 0; i < count; ++i) {
-                        BsonTreeItem *child = _root->child(i);
-                        int countc = child->childrenCount();
-                        for (int j = 0; j < countc; ++j) {
-                            addColumn(child->child(j)->key());
-                        }
-                    }
+            for (int row = 0; row < model->rowCount(); ++row) {
+                const auto *document = QtUtils::item<BsonTreeItem *>(model->index(row, 0));
+                if (!document)
+                    continue;
+                const auto bson = document->root();
+                for (const auto element : bson) {
+                    const QString name = QString::fromUtf8(element.fieldName());
+                    addColumn(bson.isArray() ? QStringLiteral("[") + name + QStringLiteral("]") : name);
                 }
             }
         }
-        return BaseClass::setSourceModel(model);
+        endResetModel();
     }
 
     QVariant BsonTableModelProxy::data(const QModelIndex &index, int role) const
@@ -112,20 +105,16 @@ namespace Robomongo
 
         BsonTreeItem *node = QtUtils::item<BsonTreeItem *>(index);
 
-        if (!node) {
-            if (role == Qt::BackgroundRole) {
-                return QBrush("#f5f3f2");
-            }
+        if (!node)
             return result;
-        }
 
         if (role == Qt::DisplayRole || role == Qt::ToolTipRole) {
             bool isCut = node->type() == mongo::String ||  node->type() == mongo::Code || node->type() == mongo::CodeWScope;  
             if (role == Qt::ToolTipRole) {
-                result = isCut ? node->value() : node->value().left(500); 
+                result = node->toolTipValue();
             }
             else{
-                result = isCut ? node->value() : node->value().simplified().left(300); 
+                result = node->displayValue(!isCut);
             }
         }
         else if (role == Qt::DecorationRole) {
@@ -149,25 +138,17 @@ namespace Robomongo
 
     QString BsonTableModelProxy::column(int col) const
     {
-        return _columns[col];
-    }
-
-    size_t BsonTableModelProxy::findIndexColumn(const QString &col) const
-    {
-        for (int i = 0; i < _columns.size(); ++i) {
-            if (_columns[i] == col) {
-                return i;
-            }
-        }
-        return _columns.size();
+        return col >= 0 && col < static_cast<int>(_columns.size()) ? _columns[col] : QString();
     }
 
     size_t BsonTableModelProxy::addColumn(const QString &col)
     {
-        size_t column = findIndexColumn(col);
-        if (column == _columns.size()) {
-            _columns.push_back(col);
-        }
-        return column;
+        const auto existing = _columnIndexes.constFind(col);
+        if (existing != _columnIndexes.constEnd())
+            return existing.value();
+        const int index = static_cast<int>(_columns.size());
+        _columns.push_back(col);
+        _columnIndexes.insert(col, index);
+        return index;
     }
 }

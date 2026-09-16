@@ -2,9 +2,11 @@
 
 #include <QObject>
 #include <QMutex>
+#include <QAtomicInteger>
+#include <memory>
 #include <unordered_set>
 
-#include <mongo/client/dbclient_rs.h> 
+#include "robomongo/core/mongodb/MongoConnection.h"
 
 #include "robomongo/core/events/MongoEvents.h"
 
@@ -107,7 +109,6 @@ namespace Robomongo
          * @brief Execute javascript
          */
         void handle(ExecuteScriptRequest *event);
-        void retry(ExecuteScriptRequest *event);
         void handle(StopScriptRequest *event);
 
         void handle(AutocompleteRequest *event);
@@ -130,9 +131,6 @@ namespace Robomongo
         virtual void timerEvent(QTimerEvent *);
 
     private:
-        // Added after Mongo 4.0 to fix connection failures seen after a first edit/add/remove doc. operation
-        void restartReplicaSetConnection();
-
         /**
          * @brief Send event to this MongoWorker
          */
@@ -146,27 +144,9 @@ namespace Robomongo
         MongoClient *getClient();
 
         /**
-        *@brief Reset and update global mongo SSL settings (mongo::sslGlobalParams)
-        */
-        void configureSSL();
-
-        /**
-        *@brief Update global mongo SSL settings (mongo::sslGlobalParams) according to active connection 
-        *       request's SSL settings.
-        */
-        void updateGlobalSSLparams() const;
-
-        /**
-        *@brief Reset global mongo SSL settings (mongo::sslGlobalParams) into default zero state
-        */
-        void resetGlobalSSLparams() const;
-
-        /**
         *@brief Update Replica Set related parameters/settings.
         */
         ReplicaSet getReplicaSetInfo() const;
-
-        std::string connectAndGetReplicaSetName() const;
 
         /**
          * @brief Send reply event to object 'obj'
@@ -191,8 +171,7 @@ namespace Robomongo
         int _shellTimeoutSec;
         QAtomicInteger<int> _isQuiting;
 
-        std::unique_ptr<mongo::DBClientConnection> _dbclient;
-        std::unique_ptr<mongo::DBClientReplicaSet> _dbclientRepSet;
+        std::unique_ptr<mongo::DBClientBase> _dbclient;
 
         ConnectionSettings *_connSettings;
 

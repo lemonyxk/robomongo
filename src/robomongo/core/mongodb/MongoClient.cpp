@@ -1,13 +1,55 @@
 #include "robomongo/core/mongodb/MongoClient.h"
 
-#include "mongo/db/namespace_string.h"
+#include "robomongo/core/mongodb/MongoConnection.h"
+#include "robomongo/core/mongodb/MongoConnection.h"
+#include "robomongo/core/bson/Bson.h"
+#include "robomongo/core/bson/Bson.h"
 
 #include "robomongo/core/domain/MongoDocument.h"
 #include "robomongo/core/utils/BsonUtils.h"
-#include "robomongo/shell/bson/json.h"
+#include "robomongo/core/bson/Bson.h"
 
 namespace
 {
+    std::string writeErrorMessage(const mongo::BSONObj &error)
+    {
+        std::string const message = error.getStringField("errmsg");
+        return message.empty() ? error.toString() : message;
+    }
+
+    void runWriteCommand(mongo::DBClientBase *client, const std::string &database,
+                         const mongo::BSONObj &command)
+    {
+        // Let the server apply its default write concern. Forcing w:1 would
+        // weaken a cluster's majority default, allowing an immediate majority
+        // read after a successful save to return the previous document.
+        mongo::BSONObj result;
+        if (!client->runCommand(database, command, result))
+            throw std::runtime_error(writeErrorMessage(result));
+
+        // An ok:1 response can still contain failed writes or a write concern
+        // failure. In either case the caller must not report a successful save.
+        std::string errors;
+        mongo::BSONElement const writeErrors = result.getField("writeErrors");
+        if (!writeErrors.eoo()) {
+            for (auto const &error : writeErrors.Array()) {
+                if (!errors.empty())
+                    errors += "\n";
+                errors += writeErrorMessage(error.Obj());
+            }
+        }
+
+        mongo::BSONElement const concernError = result.getField("writeConcernError");
+        if (!concernError.eoo()) {
+            if (!errors.empty())
+                errors += "\n";
+            errors += "Write concern failed: " + writeErrorMessage(concernError.Obj());
+        }
+
+        if (!errors.empty())
+            throw std::runtime_error(errors);
+    }
+
     Robomongo::IndexInfo makeIndexInfoFromBsonObj(
         const Robomongo::MongoCollectionInfo &collection,
         const mongo::BSONObj &obj)
@@ -217,77 +259,45 @@ namespace Robomongo
             if (!indexInfo._languageOverride.empty())
                 optionsBuilder.append("language_override", indexInfo._languageOverride);
 
-            if (!mongo::Robomongo::fromjson(indexInfo._textWeights).isEmpty())
+            if (!indexInfo._textWeights.empty() && !mongo::Robomongo::fromjson(indexInfo._textWeights).isEmpty())
                 optionsBuilder.append("weights", mongo::Robomongo::fromjson(indexInfo._textWeights));
 
-            if (indexInfo._ttl > 0)
+            if (indexInfo._ttl >= 0)
                 optionsBuilder.append("expireAfterSeconds", indexInfo._ttl);
 
             indexSpec.addOptions(optionsBuilder.obj());
             return indexSpec;
         };
 
+        auto const createIndex = [&](IndexInfo const& indexInfo) {
+            runWriteCommand(_dbclient, newInfo._collection.ns().databaseName(),
+                BSON("createIndexes" << newInfo._collection.ns().collectionName()
+                     << "indexes" << BSON_ARRAY(createIndexSpec(indexInfo).toBSON())));
+        };
+
         try {
-            _dbclient->createIndex(ns, createIndexSpec(newInfo));
+            createIndex(newInfo);
         } 
         catch (std::exception const& /*ex*/) { // Logging of "ex" is done in upper scope
             if (editIndex) {
                 // If we are here, index that is being edited, must have already been dropped and 
                 // creation of new index failed. So, we try to at least recover the dropped (old) index
-                _dbclient->createIndex(ns, createIndexSpec(oldInfo));
+                createIndex(oldInfo);
             }
             throw;
         }
-
-        std::string const errorStr = _dbclient->getLastError();
-        if (!errorStr.empty())
-            throw std::runtime_error(errorStr);
     }
 
     void MongoClient::renameIndexFromCollection(const MongoCollectionInfo &collection, const std::string &oldIndexName, const std::string &newIndexName) const
     {
-        // This is simply an example of how to perform modifications of
-        // BSON objects. Because BSONObj is immutable, you need to create
-        // copy of this object, using BSONObjBuilder and BSONObjIterator.
-        //
-        // But we need to do not just simple renaming of Index name, we
-        // also should allow our users to fully modify Index
-        // (i.e. change name, keys, unique flag, sparse flag etc.)
-        //
-        // This should be done using the same dialog as for "Add Index".
-
-        MongoNamespace ns(collection.ns().databaseName(), "system.indexes");
-        std::string systemIndexesNs = ns.toString();
-
-        // Building this JSON: { "name" : "oldIndexName" }
-        mongo::BSONObj query(mongo::BSONObjBuilder()
-            .append("name", oldIndexName)
-            .obj());
-
-        // Searching for index with "oldIndexName"
-        // with this query: db.system.indexes.find({ name : "oldIndexName"}
-        mongo::BSONObj indexBson = _dbclient->findOne(systemIndexesNs, mongo::Query(query));
-        if (indexBson.isEmpty())
+        for (const auto& oldInfo : getIndexes(collection)) {
+            if (oldInfo._name != oldIndexName) continue;
+            auto renamed = oldInfo;
+            renamed._name = newIndexName;
+            addEditIndex(oldInfo, renamed);
             return;
-
-        // Here we are building copy of "indexBson" object and
-        // changing "name" field's value from "oldIndexText" to "newIndexText":
-        mongo::BSONObjBuilder builder;
-        mongo::BSONObjIterator i(indexBson);
-        while (i.more()) {
-            mongo::BSONElement element = i.next();
-
-            if (mongo::StringData(element.fieldName()).compare("name") == 0) {
-                builder.append("name", newIndexName);
-                continue;
-            }
-
-            builder.append(element);
         }
-        std::string collectionNs = collection.ns().toString();
-
-        _dbclient->dropIndex(collectionNs, oldIndexName);
-        _dbclient->insert(systemIndexesNs, builder.obj());
+        throw std::runtime_error("Index does not exist: " + oldIndexName);
     }
 
     void MongoClient::dropIndexFromCollection(const MongoCollectionInfo &collection, const std::string &indexName) const
@@ -302,39 +312,16 @@ namespace Robomongo
         mongo::BSONObj obj = fun.toBson();
 
         if (existingFunctionName.empty()) { // create new function
-            _dbclient->insert(ns.toString(), obj);
-            std::string errorStr = _dbclient->getLastError();
-            if (!errorStr.empty())
-                throw std::runtime_error(errorStr/* , 0 */);
+            insertDocument(obj, ns);
         } else { // this is update
 
             std::string name = fun.name();
 
             if (existingFunctionName == name) { // update existing function code
-                mongo::BSONObjBuilder builder;
-                builder.append("_id", name);
-                mongo::BSONObj bsonQuery = builder.obj();
-                mongo::Query query(bsonQuery);
-
-                _dbclient->update(ns.toString(), query, obj, true, false);
-                std::string errorStr = _dbclient->getLastError();
-                if (!errorStr.empty())
-                    throw std::runtime_error(errorStr);
+                saveDocument(obj, ns);
             } else {    // update function name (remove & insert)
-                _dbclient->insert(ns.toString(), obj);
-                std::string errorStr = _dbclient->getLastError();
-
-                // if no errors
-                if (errorStr.empty()) {
-                    mongo::BSONObjBuilder builder;
-                    builder.append("_id", existingFunctionName);
-                    mongo::BSONObj bsonQuery = builder.obj();
-                    mongo::Query query(bsonQuery);
-                    _dbclient->remove(ns.toString(), query, true);
-                }
-                else {
-                    throw std::runtime_error(errorStr);
-                }
+                insertDocument(obj, ns);
+                removeDocuments(ns, mongo::Query(BSON("_id" << existingFunctionName)), true);
             }
         }
     }
@@ -348,10 +335,7 @@ namespace Robomongo
         mongo::BSONObj bsonQuery = builder.obj();
         mongo::Query query(bsonQuery);
 
-        _dbclient->remove(ns.toString(), query, true);
-        std::string errorStr = _dbclient->getLastError();
-        if (!errorStr.empty())
-            throw std::runtime_error(errorStr);
+        removeDocuments(ns, query, true);
     }
 
     void MongoClient::createDatabase(const std::string &dbName)
@@ -373,10 +357,7 @@ namespace Robomongo
         mongo::BSONObj obj = builder.obj();
 
         // Insert this document
-        _dbclient->insert(ns.toString(), obj);
-        std::string errorStr = _dbclient->getLastError();
-        if (!errorStr.empty())
-            throw std::runtime_error(errorStr);
+        insertDocument(obj, ns);
 
         // Drop temp collection
         _dbclient->dropCollection(ns.toString());
@@ -397,7 +378,7 @@ namespace Robomongo
     void MongoClient::createCollection(const std::string& ns, long long size, bool capped, int max, 
                                        const mongo::BSONObj& extraOptions, mongo::BSONObj* info)
     {
-        verify(!capped || size);
+        if (capped && !size) throw std::invalid_argument("Capped collections require a size");
         mongo::BSONObj o;
         if (info == 0)
             info = &o;
@@ -481,7 +462,7 @@ namespace Robomongo
 
         while (cursor->more()) {
             mongo::BSONObj bsonObj = cursor->next();
-            _dbclient->insert(newCollection.toString(), bsonObj);
+            insertDocument(bsonObj, newCollection);
         }
     }
 
@@ -502,7 +483,7 @@ namespace Robomongo
 
         while (cursor->more()) {
             mongo::BSONObj bsonObj = cursor->next();
-            _dbclient->insert(to.toString(), bsonObj);
+            insertDocument(bsonObj, to);
         }
     }
 
@@ -525,54 +506,85 @@ namespace Robomongo
 
     void MongoClient::insertDocument(const mongo::BSONObj &obj, const MongoNamespace &ns)
     {
-        _dbclient->insert(ns.toString(), obj);
-        checkLastErrorAndThrow(ns.databaseName());
+        runWriteCommand(_dbclient, ns.databaseName(),
+            BSON("insert" << ns.collectionName() << "documents" << BSON_ARRAY(obj)
+                 << "ordered" << true));
     }
 
     void MongoClient::saveDocument(const mongo::BSONObj &obj, const MongoNamespace &ns)
     {
         mongo::BSONElement id = obj.getField("_id");
+        if (id.eoo()) {
+            insertDocument(obj, ns);
+            return;
+        }
+
         mongo::BSONObjBuilder builder;
         builder.append(id);
         mongo::BSONObj bsonQuery = builder.obj();
-        mongo::Query query(bsonQuery);
-
-        _dbclient->update(ns.toString(), query, obj, true, false);
-        checkLastErrorAndThrow(ns.databaseName());
+        runWriteCommand(_dbclient, ns.databaseName(),
+            BSON("update" << ns.collectionName()
+                 << "updates" << BSON_ARRAY(BSON("q" << bsonQuery << "u" << obj
+                                                   << "upsert" << true << "multi" << false))
+                 << "ordered" << true));
     }
 
     void MongoClient::removeDocuments(const MongoNamespace &ns, mongo::Query query, bool justOne /*= true*/)
     {
-        _dbclient->remove(ns.toString(), query, justOne);        
-        checkLastErrorAndThrow(ns.databaseName());
+        runWriteCommand(_dbclient, ns.databaseName(),
+            BSON("delete" << ns.collectionName()
+                 << "deletes" << BSON_ARRAY(BSON("q" << query.obj
+                                                   << "limit" << (justOne ? 1 : 0)))
+                 << "ordered" << true));
     }
 
     std::vector<MongoDocumentPtr> MongoClient::query(const MongoQueryInfo &info)
     {
-        MongoNamespace ns(info._info._ns);
-
-        //int limit = (info.limit <= 0) ? 50 : info.limit;
-
         std::vector<MongoDocumentPtr> docs;
-
         if (info._limit == -1) // it means that we do not need to load any documents
             return docs;
 
-        std::unique_ptr<mongo::DBClientCursor> cursor = _dbclient->query(
-			mongo::NamespaceString(ns.databaseName(), ns.collectionName()),          
-			info._query, info._limit, info._skip, info._fields.nFields() ? &info._fields : 0, 
-			info._options, info._batchSize
-		);
+        MongoNamespace const ns(info._info._ns);
+        mongo::NamespaceString const cursorNs(ns.databaseName(), ns.collectionName());
 
-        // DBClientBase::query may return nullptr
-        if (!cursor)
-            throw std::runtime_error("Network error while attempting to run query");
-
-        while (cursor->more()) {
-            mongo::BSONObj bsonObj = cursor->next();
-            MongoDocumentPtr doc(new MongoDocument(bsonObj.getOwned()));
-            docs.push_back(doc);
+        mongo::BSONObj filter = info._query;
+        mongo::BSONObjBuilder options;
+        if (info._skip < 0) throw std::invalid_argument("Query skip must not be negative");
+        if (info._skip) options.append("skip", static_cast<long long>(info._skip));
+        if (info._limit) options.append("limit", std::abs(static_cast<long long>(info._limit)));
+        if (info._batchSize) options.append("batchSize", std::abs(static_cast<long long>(info._batchSize)));
+        if (info._limit < 0 || info._batchSize < 0) options.append("singleBatch", true);
+        if (!info._fields.isEmpty()) options.append("projection", info._fields);
+        mongo::BSONObj readPreference;
+        if (info._special) {
+            filter = info._query.hasField("$query") ? info._query.getObjectField("$query") : info._query.getObjectField("query");
+            const std::pair<const char*, const char*> modifiers[] = {
+                {"$orderby", "sort"}, {"orderby", "sort"}, {"$hint", "hint"},
+                {"$min", "min"}, {"$max", "max"}, {"$maxTimeMS", "maxTimeMS"},
+                {"$comment", "comment"}, {"$returnKey", "returnKey"},
+                {"$showDiskLoc", "showRecordId"}, {"readConcern", "readConcern"},
+                {"collation", "collation"}
+            };
+            for (const auto& modifier : modifiers) {
+                auto value = info._query[modifier.first];
+                if (!value.eoo()) options.appendAs(value, modifier.second);
+            }
+            readPreference = info._query.getObjectField("$readPreference");
         }
+        if ((info._options & 4) && readPreference.isEmpty()) readPreference = BSON("mode" << "secondaryPreferred");
+        if (info._options & 2) options.append("tailable", true);
+        if (info._options & 16) options.append("noCursorTimeout", true);
+        if (info._options & 32) options.append("awaitData", true);
+        if (info._options & 128) options.append("allowPartialResults", true);
+        if (info._special && info._query.getBoolField("$explain")) {
+            auto find = mongo::BSONObjBuilder().append("find", ns.collectionName())
+                .append("filter", filter).appendElements(options.obj()).obj();
+            docs.emplace_back(new MongoDocument(_dbclient->command(ns.databaseName(),
+                BSON("explain" << find << "verbosity" << "allPlansExecution"))));
+            return docs;
+        }
+        auto cursor = _dbclient->find(cursorNs, filter, options.obj(), readPreference);
+        while (cursor->more()) docs.emplace_back(new MongoDocument(cursor->next()));
 
         return docs;
     }
@@ -614,12 +626,4 @@ namespace Robomongo
         //_scopedConnection->done();
     }
 
-    void MongoClient::checkLastErrorAndThrow(const std::string &db)
-    {
-        std::string const lastError = _dbclient->getLastError(db);        
-        if (lastError.empty())
-            return;
-
-        throw std::runtime_error(lastError/*, mongo::ErrorCodes::InternalError*/);
-    }
 }

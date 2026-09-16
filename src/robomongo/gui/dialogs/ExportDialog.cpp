@@ -78,10 +78,6 @@ namespace Robomongo
         VERIFY(connect(_activeProcess, SIGNAL(errorOccurred(QProcess::ProcessError)),
             this, SLOT(on_processErrorOccurred(QProcess::ProcessError))));
 
-        // todo: move to a global location
-        // Enable copyable text for QMessageBox
-        qApp->setStyleSheet("QMessageBox { messagebox-text-interaction-flags: 5; }");
-
         const QString serverName = "localhost:20017"; // todo: remove
         Indicator *serverIndicator = new Indicator(GuiRegistry::instance().serverIcon(), serverName);
 
@@ -306,7 +302,7 @@ namespace Robomongo
             _mongoExportArgs.append(" --out " + absFilePath);
 
             // Start mongoexport non-blocking
-            _activeProcess->start(mongoExport + _mongoExportArgs);
+            _activeProcess->startCommand(mongoExport + _mongoExportArgs);
         }
         else if (MANUAL == _mode)
         {
@@ -315,7 +311,7 @@ namespace Robomongo
 
             // todo: check if _activeProcess->state() is QProcess::NotRunning
             // Start mongoexport non-blocking
-            _activeProcess->start("D:\\mongo_export\\bin\\" + _manualExportCmd->toPlainText());
+            _activeProcess->startCommand("D:\\mongo_export\\bin\\" + _manualExportCmd->toPlainText());
         }
     }
 

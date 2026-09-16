@@ -66,6 +66,8 @@ namespace Robomongo
         void onCopyPathDocument();
 
     private:
+        bool isEditable() const;
+        void refreshAfterWrite();
         MainWindow* mainWindow() const;
 
         QAction *_deleteDocumentAction;

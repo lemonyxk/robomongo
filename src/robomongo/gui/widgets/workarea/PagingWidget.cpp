@@ -1,8 +1,12 @@
 #include "robomongo/gui/widgets/workarea/PagingWidget.h"
 
+#include <QIntValidator>
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QLocale>
 #include <QPushButton>
+
+#include <limits>
 
 #include "robomongo/core/utils/QtUtils.h"
 #include "robomongo/core/AppRegistry.h"
@@ -11,12 +15,16 @@
 
 namespace
 {
-    QPushButton *createButtonWithIcon(const QIcon &icon)
+    QPushButton *createButtonWithIcon(const QIcon &icon, const QString &description)
     {
         QPushButton *button = new QPushButton;
         button->setIcon(icon);
-        button->setFixedSize(24, 24);
+        button->setIconSize(QSize(16, 16));
+        button->setFixedSize(28, 28);
         button->setFlat(true);
+        button->setToolTip(description);
+        button->setAccessibleName(description);
+        button->setCursor(Qt::PointingHandCursor);
         return button;
     }
 }
@@ -24,48 +32,65 @@ namespace
 namespace Robomongo
 {
     PagingWidget::PagingWidget(QWidget *parent)
-        :BaseClass(parent)
+        : BaseClass(parent)
     {
-        _skipEdit = new QLineEdit;
-        _batchSizeEdit = new QLineEdit;
-        _skipEdit->setAlignment(Qt::AlignHCenter);
-        _skipEdit->setToolTip("Skip");
-        _batchSizeEdit->setAlignment(Qt::AlignHCenter);
-        _batchSizeEdit->setToolTip("Batch Size (number of documents shown at once)");
+        setObjectName("resultPaging");
+        setStyleSheet(
+            "QWidget#resultPaging QLineEdit { background: white; color: #243247;"
+                "border: 1px solid #dce3ec; border-radius: 4px; padding: 2px 5px; min-height: 0; }"
+            "QWidget#resultPaging QLineEdit:focus { border-color: #247c68; }"
+            "QWidget#resultPaging QPushButton { padding: 0; min-width: 0; min-height: 0; }"
+        );
+        _skipEdit = new QLineEdit(this);
+        _batchSizeEdit = new QLineEdit(this);
+        _skipEdit->setAlignment(Qt::AlignCenter);
+        _skipEdit->setToolTip(tr("Documents to skip — press Enter to apply"));
+        _skipEdit->setAccessibleName(tr("Documents to skip"));
+        _skipEdit->setPlaceholderText(tr("Skip"));
+        _batchSizeEdit->setAlignment(Qt::AlignCenter);
+        _batchSizeEdit->setToolTip(tr("Documents per page — press Enter to apply"));
+        _batchSizeEdit->setAccessibleName(tr("Documents per page"));
+        _batchSizeEdit->setPlaceholderText(tr("Page size"));
+        _skipEdit->setClearButtonEnabled(false);
+        _batchSizeEdit->setClearButtonEnabled(false);
 
-        QFontMetrics metrics = _skipEdit->fontMetrics();
-        int width = metrics.boundingRect("00000000").width();
-        QRegExp rx("\\d+");
-        _skipEdit->setValidator(new QRegExpValidator(rx, this));
-        _batchSizeEdit->setValidator(new QRegExpValidator(rx, this));
-        _skipEdit->setFixedWidth(width);
-        _batchSizeEdit->setFixedWidth(width);
+        const int width = qMax(68, _skipEdit->fontMetrics().horizontalAdvance(QStringLiteral("000000")) + 16);
+        const int maximum = std::numeric_limits<int>::max();
+        QLocale inputLocale = QLocale::c();
+        inputLocale.setNumberOptions(QLocale::RejectGroupSeparator);
+        auto *skipValidator = new QIntValidator(0, maximum, _skipEdit);
+        auto *batchValidator = new QIntValidator(1, maximum, _batchSizeEdit);
+        skipValidator->setLocale(inputLocale);
+        batchValidator->setLocale(inputLocale);
+        _skipEdit->setValidator(skipValidator);
+        _batchSizeEdit->setValidator(batchValidator);
+        _skipEdit->setFixedSize(width, 26);
+        _batchSizeEdit->setFixedSize(width, 26);
 
-        QPushButton *leftButton = createButtonWithIcon(GuiRegistry::instance().leftIcon());
-        QPushButton *rightButton = createButtonWithIcon(GuiRegistry::instance().rightIcon());
-        VERIFY(connect(leftButton, SIGNAL(clicked()), this, SLOT(leftButton_clicked())));
-        VERIFY(connect(rightButton, SIGNAL(clicked()), this, SLOT(rightButton_clicked())));
-
+        _leftButton = createButtonWithIcon(GuiRegistry::instance().leftIcon(), tr("Previous page"));
+        _rightButton = createButtonWithIcon(GuiRegistry::instance().rightIcon(), tr("Next page"));
+        VERIFY(connect(_leftButton, SIGNAL(clicked()), this, SLOT(leftButton_clicked())));
+        VERIFY(connect(_rightButton, SIGNAL(clicked()), this, SLOT(rightButton_clicked())));
         VERIFY(connect(_batchSizeEdit, SIGNAL(returnPressed()), this, SLOT(refresh())));
         VERIFY(connect(_skipEdit, SIGNAL(returnPressed()), this, SLOT(refresh())));
+        connect(_skipEdit, &QLineEdit::textChanged, this, [this]() { updateNavigation(); });
+        connect(_batchSizeEdit, &QLineEdit::textChanged, this, [this]() { updateNavigation(); });
 
-        QHBoxLayout *layout = new QHBoxLayout();
-        layout->setSpacing(0);
+        auto *layout = new QHBoxLayout(this);
+        layout->setSpacing(4);
         layout->setContentsMargins(0, 0, 0, 0);
-
-        layout->addWidget(leftButton);
-        layout->addSpacing(0);
+        layout->addWidget(_leftButton);
         layout->addWidget(_skipEdit);
-        layout->addSpacing(1);
         layout->addWidget(_batchSizeEdit);
-        layout->addSpacing(0);
-        layout->addWidget(rightButton);
-        setLayout(layout);
+        layout->addWidget(_rightButton);
+        updateNavigation();
     }
 
     void PagingWidget::setSkip(int skip)
     {
-        _skipEdit->setText(QString::number(skip));
+        const QString text = QString::number(qMax(0, skip));
+        if (_skipEdit->text() != text)
+            _skipEdit->setText(text);
         show();
     }
 
@@ -74,28 +99,51 @@ namespace Robomongo
         if (batchSize <= 0)
             batchSize = AppRegistry::instance().settingsManager()->batchSize();
 
-        _batchSizeEdit->setText(QString::number(batchSize));
+        const QString text = QString::number(qMax(1, batchSize));
+        if (_batchSizeEdit->text() != text)
+            _batchSizeEdit->setText(text);
         show();
+    }
+
+    bool PagingWidget::pageValues(int &skip, int &limit) const
+    {
+        bool skipValid = false;
+        bool limitValid = false;
+        skip = _skipEdit->text().toInt(&skipValid);
+        limit = _batchSizeEdit->text().toInt(&limitValid);
+        return skipValid && limitValid && skip >= 0 && limit > 0;
+    }
+
+    void PagingWidget::updateNavigation()
+    {
+        int skip = 0;
+        int limit = 0;
+        const bool valid = pageValues(skip, limit);
+        _leftButton->setEnabled(valid && skip > 0);
+        _rightButton->setEnabled(valid && skip <= std::numeric_limits<int>::max() - limit);
     }
 
     void PagingWidget::refresh()
     {
-        int limit = _batchSizeEdit->text().toInt();
-        int skip = _skipEdit->text().toInt();
-        emit refreshed(skip, limit);
+        int skip = 0;
+        int limit = 0;
+        if (pageValues(skip, limit))
+            emit refreshed(skip, limit);
     }
 
     void PagingWidget::leftButton_clicked()
     {
-        int limit = _batchSizeEdit->text().toInt();
-        int skip = _skipEdit->text().toInt();
-        emit leftClicked(skip, limit);
+        int skip = 0;
+        int limit = 0;
+        if (pageValues(skip, limit) && skip > 0)
+            emit leftClicked(skip, limit);
     }
 
     void PagingWidget::rightButton_clicked()
     {
-        int limit = _batchSizeEdit->text().toInt();
-        int skip = _skipEdit->text().toInt();
-        emit rightClicked(skip, limit);
+        int skip = 0;
+        int limit = 0;
+        if (pageValues(skip, limit) && skip <= std::numeric_limits<int>::max() - limit)
+            emit rightClicked(skip, limit);
     }
 }

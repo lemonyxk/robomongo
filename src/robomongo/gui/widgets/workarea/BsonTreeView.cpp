@@ -20,23 +20,41 @@ namespace Robomongo
         setAttribute(Qt::WA_MacShowFocusRect, false);
 #endif
         GuiRegistry::instance().setAlternatingColor(this);
+        setUniformRowHeights(true);
+        setAnimated(false);
+        setWordWrap(false);
+        setTextElideMode(Qt::ElideRight);
+        setIndentation(20);
+        setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         setSelectionMode(QAbstractItemView::ExtendedSelection);
         setSelectionBehavior(QAbstractItemView::SelectRows);
         setContextMenuPolicy(Qt::CustomContextMenu);
         VERIFY(connect(this, SIGNAL(customContextMenuRequested(const QPoint&)), this, SLOT(showContextMenu(const QPoint&))));
 
         _expandRecursive = new QAction("Expand Recursively", this);
-        _expandRecursive->setShortcut(QKeySequence(Qt::ALT + Qt::Key_Right));
+        _expandRecursive->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Right));
         VERIFY(connect(_expandRecursive, SIGNAL(triggered()), SLOT(onExpandRecursive())));
         
         _collapseRecursive = new QAction(tr("Collapse Recursively"), this);
-        _collapseRecursive->setShortcut(QKeySequence(Qt::ALT + Qt::Key_Left));
+        _collapseRecursive->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Left));
         VERIFY(connect(_collapseRecursive, SIGNAL(triggered()), SLOT(onCollapseRecursive())));
 
-        setStyleSheet("QTreeView { border-left: 1px solid #c7c5c4; border-top: 1px solid #c7c5c4; }");
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 0, 0))
         header()->setSectionResizeMode(QHeaderView::Interactive);
-#endif
+        header()->setDefaultSectionSize(240);
+        header()->setMinimumSectionSize(80);
+        header()->setStretchLastSection(false);
+    }
+
+    void BsonTreeView::setModel(QAbstractItemModel *model)
+    {
+        BaseClass::setModel(model);
+        if (!model)
+            return;
+        // Give the value column the spare space while preserving user-sized
+        // key/type columns across window and splitter resizes.
+        header()->setSectionResizeMode(BsonTreeItem::eValue, QHeaderView::Stretch);
+        setColumnWidth(BsonTreeItem::eKey, 260);
+        setColumnWidth(BsonTreeItem::eType, 140);
     }
 
     void BsonTreeView::showContextMenu(const QPoint &point)
@@ -79,12 +97,6 @@ namespace Robomongo
         }
     }
 
-    void BsonTreeView::resizeEvent(QResizeEvent *event)
-    {
-        BaseClass::resizeEvent(event);
-        header()->resizeSections(QHeaderView::Stretch);
-    }
-
     void BsonTreeView::keyPressEvent(QKeyEvent *event)
     {
         switch (event->key()) {
@@ -112,6 +124,10 @@ namespace Robomongo
     void BsonTreeView::expandNode(const QModelIndex &index)
     {
         if (index.isValid()) {
+            // Expansion can be deferred while a view layout is pending.
+            // Materialize children before traversing the requested subtree.
+            if (model()->canFetchMore(index))
+                model()->fetchMore(index);
             BaseClass::expand(index);
             BsonTreeItem *item = QtUtils::item<BsonTreeItem*>(index);
             for (unsigned i = 0; i < item->childrenCount(); ++i) {
@@ -139,6 +155,8 @@ namespace Robomongo
 
     void BsonTreeView::onExpandRecursive()
     {
+        const bool updatesWereEnabled = updatesEnabled();
+        setUpdatesEnabled(false);
         QModelIndexList indexes = selectedIndexes();
         if (detail::isMultiSelection(indexes)) {
             for (int i = 0; i<indexes.count(); ++i)
@@ -146,10 +164,13 @@ namespace Robomongo
         } else {
             expandNode(selectedIndex());
         }
+        setUpdatesEnabled(updatesWereEnabled);
     }
 
     void BsonTreeView::onCollapseRecursive()
     {
+        const bool updatesWereEnabled = updatesEnabled();
+        setUpdatesEnabled(false);
         QModelIndexList indexes = selectedIndexes();
         if (detail::isMultiSelection(indexes)) {
             for (int i = 0; i<indexes.count(); ++i)
@@ -157,6 +178,7 @@ namespace Robomongo
         } else {
             collapseNode(selectedIndex());
         }
+        setUpdatesEnabled(updatesWereEnabled);
     }
 
     /**

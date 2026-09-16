@@ -1,6 +1,6 @@
 #include "robomongo/core/domain/MongoShell.h"
 
-#include "mongo/scripting/engine.h"
+
 
 #include "robomongo/core/domain/MongoServer.h"
 #include "robomongo/core/mongodb/MongoWorker.h"
@@ -68,8 +68,8 @@ namespace Robomongo
 
     void MongoShell::stop()
     {
-        // _server->worker()->interrupt();
-        // mongo::Scope::setInterruptFlag(true);
+        if (_server->worker())
+            _server->worker()->interrupt();
     }
 
     bool MongoShell::loadFromFile()

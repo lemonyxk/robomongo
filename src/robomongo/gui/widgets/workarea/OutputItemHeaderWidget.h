@@ -1,12 +1,10 @@
 #pragma once
 
-#include <QWidget>
+#include <QFrame>
 QT_BEGIN_NAMESPACE
 class QPushButton;
 QT_END_NAMESPACE
 
-#include "robomongo/gui/editors/PlainJavaScriptEditor.h"
-#include "robomongo/core/domain/MongoShellResult.h"
 #include "robomongo/gui/widgets/workarea/PagingWidget.h"
 
 namespace Robomongo

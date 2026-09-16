@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mongo/bson/bsonobj.h>
+#include "robomongo/core/bson/Bson.h"
 #include "robomongo/core/domain/MongoNamespace.h"
 
 namespace Robomongo
@@ -31,11 +31,13 @@ namespace Robomongo
         CollectionInfo _info;
         mongo::BSONObj _query;
         mongo::BSONObj _fields;
-        int _limit;
-        int _skip;
-        int _batchSize;
-        int _options;
-        bool _special; // flag, indicating that `query` contains special fields on
+        int _limit = 0;
+        int _skip = 0;
+        int _batchSize = 50;
+        int _options = 0;
+        std::string runtimeCursorId;
+        bool readOnly = false;
+        bool _special = false; // flag, indicating that `query` contains special fields on
                       // first level, and query data in `query` field.
         
     };

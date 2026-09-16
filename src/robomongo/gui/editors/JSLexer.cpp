@@ -8,10 +8,9 @@ namespace Robomongo
     {
     }
 
-    QColor JSLexer::defaultPaper(int style) const
+    QColor JSLexer::defaultPaper(int) const
     {
-        return QColor(73, 76, 78);
-        //return QColor(48, 10, 36); // Ubuntu-style background
+        return QColor("#ffffff");
     }
 
     QColor JSLexer::defaultColor(int style) const
@@ -19,48 +18,40 @@ namespace Robomongo
         switch (style)
         {
         case Default:
-            return QColor("#FFFFFF");
+            return QColor("#243247");
 
         case Comment:
         case CommentLine:
-            return QColor("#999999");
-
         case CommentDoc:
         case CommentLineDoc:
-            return QColor("#999999");
+            return QColor("#748398");
 
         case Number:
-            //return QColor("#DBF76C");
-            return QColor("#FFA09E");
+            return QColor("#b15b20");
 
         case Keyword:
-            //return QColor("#FDE15D");
-            return QColor("#BEE5FF");
+            return QColor("#6e50ad");
 
         case DoubleQuotedString:
         case SingleQuotedString:
         case RawString:
-            //return QColor("#5ED363");
-            return QColor("#C6F079");
+            return QColor("#247c68");
 
         case PreProcessor:
-            return QColor("#00FF00");
+            return QColor("#356fa8");
 
         case Operator:
-        case UnclosedString:
-            //return QColor("#FF7729");
-            //return QColor("#AFBED4");
-            return QColor("#FFD14D");
-
+            return QColor("#50657e");
 
         case Regex:
-            return QColor("#FFFFFF");
+            return QColor("#a04877");
 
         case CommentDocKeyword:
-            return QColor("#FFFFFF");
+            return QColor("#356fa8");
 
+        case UnclosedString:
         case CommentDocKeywordError:
-            return QColor("#FFFFFF");
+            return QColor("#bd4052");
 
         case InactiveDefault:
         case InactiveUUID:
@@ -68,44 +59,25 @@ namespace Robomongo
         case InactiveKeywordSet2:
         case InactiveCommentDocKeyword:
         case InactiveCommentDocKeywordError:
-            return QColor("#FFFFFF");
-
         case InactiveComment:
         case InactiveCommentLine:
         case InactiveNumber:
-            return QColor("#FFFFFF");
-
         case InactiveCommentDoc:
-            return QColor("#FFFFFF");
-
         case InactiveKeyword:
-            return QColor("#FFFFFF");
-
         case InactiveDoubleQuotedString:
         case InactiveSingleQuotedString:
         case InactiveRawString:
-            return QColor("#FFFFFF");
-
         case InactivePreProcessor:
-            return QColor("#FFFFFF");
-
         case InactiveOperator:
         case InactiveIdentifier:
         case InactiveGlobalClass:
-            return QColor("#FFFFFF");
-
         case InactiveUnclosedString:
-            return QColor("#FFFFFF");
-
         case InactiveVerbatimString:
-            return QColor("#FFFFFF");
-
         case InactiveRegex:
-            return QColor("#FFFFFF");
+            return QColor("#8794a7");
         }
 
-        return QColor("#FFFFFF");
-        //    return QsciLexer::defaultColor(style);
+        return QColor("#243247");
     }
 
     const char *JSLexer::keywords(int set) const

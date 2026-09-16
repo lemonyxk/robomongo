@@ -4,7 +4,8 @@
 #include <QString>
 #include <QStringList>
 #include <QEvent>
-#include <mongo/client/dbclient_base.h>
+#include <memory>
+#include "robomongo/core/mongodb/MongoConnection.h"
 
 #include "robomongo/core/domain/MongoShellResult.h"
 #include "robomongo/core/domain/CursorPosition.h"
@@ -14,6 +15,7 @@
 #include "robomongo/core/domain/MongoAggregateInfo.h"
 #include "robomongo/core/Event.h"
 #include "robomongo/core/Enums.h"
+#include "robomongo/core/utils/LogSeverity.h"
 #include "robomongo/core/mongodb/ReplicaSet.h"
 
 namespace Robomongo
@@ -33,13 +35,18 @@ namespace Robomongo
     {
         R_EVENT
 
-            EstablishConnectionRequest(QObject *sender, ConnectionType connectionType, std::string const& uuid) :
+            EstablishConnectionRequest(QObject *sender, ConnectionType connectionType, std::string const& uuid,
+                                       const ConnectionInfo *knownInfo = nullptr) :
             Event(sender),
             connectionType(connectionType),
-            uuid(uuid) {}
+            uuid(uuid),
+            knownInfo(knownInfo ? std::make_shared<const ConnectionInfo>(*knownInfo) : nullptr) {}
 
         ConnectionType const connectionType;
         std::string const uuid;
+        // Copy the explorer's metadata across threads; the new client still
+        // establishes its own authenticated connection and replica topology.
+        std::shared_ptr<const ConnectionInfo> const knownInfo;
     };
 
     struct EstablishConnectionResponse : public Event

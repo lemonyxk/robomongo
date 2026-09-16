@@ -2,6 +2,7 @@
 #include <vector>
 
 #include <QAbstractProxyModel>
+#include <QHash>
 
 namespace Robomongo
 {
@@ -31,9 +32,7 @@ namespace Robomongo
     private:
         QString column(int col) const;
         size_t addColumn(const QString &col);
-        size_t findIndexColumn(const QString &col) const;
-
         ColumnsValuesType _columns;
-        BsonTreeItem *_root;
+        QHash<QString, int> _columnIndexes;
     };
 }

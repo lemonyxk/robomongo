@@ -19,9 +19,8 @@ namespace
     QFrame *createVerticalLine()
     {
         QFrame *vline = new QFrame();
-        vline->setFrameShape(QFrame::VLine);
-        vline->setFrameShadow(QFrame::Sunken);
-        vline->setFixedWidth(5);
+        vline->setFixedSize(1, 18);
+        vline->setStyleSheet("background: #dce3ec; border: none;");
         return vline;
     }
 }
@@ -37,7 +36,17 @@ namespace Robomongo
         _multipleResults(multipleResults), 
         _firstItem(firstItem), _lastItem(lastItem), _orientation(Qt::Vertical)
     {
-        setContentsMargins(5, 0, 0, 0);
+        setObjectName("resultHeader");
+        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        setStyleSheet(
+            "QFrame#resultHeader { background: #f8fafc; border: none; border-bottom: 1px solid #dce3ec; }"
+            "QFrame#resultHeader QPushButton { padding: 0; min-width: 0; min-height: 0;"
+                "background: transparent; border: 1px solid transparent; border-radius: 5px; }"
+            "QFrame#resultHeader QPushButton:hover { background: #e8eef4; }"
+            "QFrame#resultHeader QPushButton:checked { background: #e1f1eb; border-color: #b9dace; }"
+            "QFrame#resultHeader QPushButton:pressed { background: #d4e9e1; }"
+            "QFrame#resultHeader QPushButton:focus { border-color: #247c68; }"
+        );
 
         auto const* outputWidget = qobject_cast<OutputWidget*>(outputItemContentWidget->parentWidget());
         _orientation = outputWidget->getOrientation();
@@ -46,7 +55,7 @@ namespace Robomongo
         _textButton = new QPushButton(this);
         _textButton->setIcon(GuiRegistry::instance().textIcon());
         _textButton->setToolTip("View results in text mode");
-        _textButton->setFixedSize(24, 24);
+        _textButton->setFixedSize(28, 28);
         _textButton->setFlat(true);
         _textButton->setCheckable(true);
 
@@ -55,7 +64,7 @@ namespace Robomongo
         _treeButton->hide();
         _treeButton->setIcon(GuiRegistry::instance().treeIcon());
         _treeButton->setToolTip("View results in tree mode");
-        _treeButton->setFixedSize(24, 24);
+        _treeButton->setFixedSize(28, 28);
         _treeButton->setFlat(true);
         _treeButton->setCheckable(true);
         _treeButton->setChecked(true);     
@@ -65,7 +74,7 @@ namespace Robomongo
         _tableButton->hide();
         _tableButton->setIcon(GuiRegistry::instance().tableIcon());
         _tableButton->setToolTip("View results in table mode");
-        _tableButton->setFixedSize(24, 24);
+        _tableButton->setFixedSize(28, 28);
         _tableButton->setFlat(true);
         _tableButton->setCheckable(true);
         _tableButton->setChecked(true);       
@@ -75,7 +84,7 @@ namespace Robomongo
         _customButton->hide();
         _customButton->setIcon(GuiRegistry::instance().customIcon());
         _customButton->setToolTip("View results in custom UI");
-        _customButton->setFixedSize(24, 24);
+        _customButton->setFixedSize(28, 28);
         _customButton->setFlat(true);
         _customButton->setCheckable(true);
 
@@ -84,7 +93,7 @@ namespace Robomongo
             _maxButton = new QPushButton;
             _maxButton->setIcon(GuiRegistry::instance().maximizeIcon());
             _maxButton->setToolTip("Maximize this output result (double-click on result's header)");
-            _maxButton->setFixedSize(18, 18);
+            _maxButton->setFixedSize(28, 28);
             _maxButton->setFlat(true);
             VERIFY(connect(_maxButton, SIGNAL(clicked()), this, SLOT(maximizeMinimizePart())));
         }
@@ -93,7 +102,7 @@ namespace Robomongo
         auto queryWidget = dockWidget->getParentQueryWidget();
         
         _dockUndockButton = new QPushButton;
-        _dockUndockButton->setFixedSize(18, 18);
+        _dockUndockButton->setFixedSize(28, 28);
         _dockUndockButton->setFlat(true);
         _dockUndockButton->setHidden(true);
         applyDockUndockSettings(!dockWidget->isFloating());
@@ -104,6 +113,14 @@ namespace Robomongo
         VERIFY(connect(_tableButton, SIGNAL(clicked()), outputItemContentWidget, SLOT(showTable())));
         VERIFY(connect(_customButton, SIGNAL(clicked()), outputItemContentWidget, SLOT(showCustom())));
 
+        for (QPushButton *button : {_textButton, _treeButton, _tableButton, _customButton, _maxButton, _dockUndockButton}) {
+            if (!button)
+                continue;
+            button->setIconSize(QSize(16, 16));
+            button->setCursor(Qt::PointingHandCursor);
+            button->setAccessibleName(button->toolTip());
+        }
+
         _collectionIndicator = new Indicator(GuiRegistry::instance().collectionIcon());
         _timeIndicator = new Indicator(GuiRegistry::instance().timeIcon());
         _paging = new PagingWidget();
@@ -113,16 +130,11 @@ namespace Robomongo
         _paging->hide();
 
         QHBoxLayout *layout = new QHBoxLayout();
-#ifdef __APPLE__
-        layout->setContentsMargins(2, 8, 5, 1);
-#else  
-        layout->setContentsMargins(2, 0, 5, 1);
-#endif
-        layout->setSpacing(0);
+        layout->setContentsMargins(10, 5, 8, 5);
+        layout->setSpacing(4);
         layout->addWidget(_collectionIndicator);
         layout->addWidget(_timeIndicator);
-        QSpacerItem *hSpacer = new QSpacerItem(2000, 24, QSizePolicy::Preferred, QSizePolicy::Minimum);
-        layout->addSpacerItem(hSpacer);
+        layout->addStretch(1);
         layout->addWidget(_paging);
         layout->addWidget(createVerticalLine());
         layout->addSpacing(2);
@@ -145,7 +157,7 @@ namespace Robomongo
         if (outputItemContentWidget->isTextModeSupported())
             layout->addWidget(_textButton, 0, Qt::AlignRight);
 
-        if (_multipleResults)
+        if (_maxButton)
             layout->addWidget(_maxButton, 0, Qt::AlignRight);
 
         layout->addSpacing(3);
@@ -163,9 +175,7 @@ namespace Robomongo
             _verticalLine->setVisible(true);
             _dockUndockButton->setVisible(true);
         }
-      
-        if(tabbedResults)
-            setStyleSheet("background-color: white");
+
     }
 
     void OutputItemHeaderWidget::mouseDoubleClickEvent(QMouseEvent *)
@@ -256,8 +266,8 @@ namespace Robomongo
 
     void OutputItemHeaderWidget::maximizeMinimizePart()
     {
-        // No maximize/minimize behaviour if there is only one query result
-        if (!_multipleResults)
+        // Tabbed results do not have a maximize button either.
+        if (!_multipleResults || !_maxButton)
             return;
 
         if (_maximized) {   // restoring original size

@@ -23,11 +23,11 @@ namespace Robomongo
             _aggrInfo(aggrInfo)
         { }
 
-        std::string response() const { return _response; }
-        std::string type() const { return _type; }
-        std::vector<MongoDocumentPtr> documents() const { return _documents; }
-        MongoQueryInfo queryInfo() const { return _queryInfo; }
-        std::string statement() const { return _statement; }
+        const std::string &response() const { return _response; }
+        const std::string &type() const { return _type; }
+        const std::vector<MongoDocumentPtr> &documents() const { return _documents; }
+        const MongoQueryInfo &queryInfo() const { return _queryInfo; }
+        const std::string &statement() const { return _statement; }
         std::string statementShort() const {
             std::size_t const LEN = _statement.size() < 10 ? _statement.size() : 10;
             std::string statementShort { _statement, 0, LEN };

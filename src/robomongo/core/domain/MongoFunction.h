@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mongo/bson/bsonobj.h>
+#include "robomongo/core/bson/Bson.h"
 
 namespace Robomongo
 {

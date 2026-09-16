@@ -1,14 +1,3 @@
-
-# Automatically generate code for Qt moc, uic and rcc files
-# Since CMake 2.8.6
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
-
-#set(sanitize "-fsanitize=address")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${sanitize}")
-#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${sanitize}")
-
 set(SOURCES
     # Isolated Scope #1
     core/utils/QtUtils.cpp
@@ -35,8 +24,8 @@ set(SOURCES
     core/domain/CursorPosition.cpp
     core/domain/ScriptInfo.cpp
     core/events/MongoEventsInfo.cpp
-    shell/db/ptimeutil.cpp
-    shell/bson/json.cpp
+    core/bson/Bson.cpp
+    core/mongodb/MongoConnection.cpp
 
     # Isolated Scope #2
     core/engine/ScriptEngine.cpp
@@ -141,145 +130,40 @@ set(SOURCES
     gui/resources/gui.qrc
 )
 
-# Robomongo target
-add_executable(robomongo MACOSX_BUNDLE WIN32 app/main.cpp ${SOURCES})
-
-# Disable WebEngineWidgets for Linux
-SET(WebEngineWidgets "Qt5::WebEngineWidgets") 
-if(SYSTEM_LINUX)
-   SET(WebEngineWidgets)  
-endif()
- 
-target_link_libraries(robomongo
-    PRIVATE
-        Qt5::Widgets
-        Qt5::Network
-        Qt5::Xml
-        ${WebEngineWidgets}
-        qjson
-        qscintilla
-        mongodb
-        ssh
-        Threads::Threads)   # Target from FindThreads CMake module
-
+# Object library shares exactly the production implementation with tests.
+add_library(robo_core OBJECT ${SOURCES})
+target_link_libraries(robo_core PUBLIC robo_dependencies ssh)
+add_executable(robomongo MACOSX_BUNDLE WIN32 app/main.cpp)
+target_link_libraries(robomongo PRIVATE robo_core)
 if(APPLE)
-  find_library(SECURITY NAMES Security)
-  find_library(CORE_FOUNDATION NAMES CoreFoundation)
-  set(SSL_LIBRARIES ${SECURITY} ${CORE_FOUNDATION})
-  
-  target_link_libraries(robomongo
-    PRIVATE
-        ${SSL_LIBRARIES}
-        -lresolv)
-endif(APPLE)
-
-target_include_directories(robomongo
-    PRIVATE
-        ${CMAKE_HOME_DIRECTORY}/src)
-
-# Get build number
-find_package(Git)
-if(GIT_FOUND)
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        OUTPUT_VARIABLE BUILD_NUMBER   
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )    
-else(GIT_FOUND)
-    MESSAGE( FATAL_ERROR "Unable to find Git" )
-    set(BUILD_NUMBER 0)
-endif(GIT_FOUND)
-
-if(BUILD_NUMBER STREQUAL "")
-   MESSAGE( FATAL_ERROR "Failed to get BUILD_NUMBER" )
-endif()
-
-set(BUILD_NUMBER ${BUILD_NUMBER} CACHE INTERNAL "")
-
-target_compile_definitions(robomongo
-    PRIVATE
-        BUILDING_ROBO
-        PROJECT_NAME="${PROJECT_NAME}"
-        PROJECT_NAME_TITLE="${PROJECT_NAME_TITLE}"
-        PROJECT_COPYRIGHT="${PROJECT_COPYRIGHT}"
-        PROJECT_DOMAIN="${PROJECT_DOMAIN}"
-        PROJECT_COMPANYNAME="${PROJECT_COMPANYNAME}"
-        PROJECT_COMPANYNAME_DOMAIN="${PROJECT_COMPANYNAME_DOMAIN}"
-        PROJECT_GITHUB_FORK="${PROJECT_GITHUB_FORK}"
-        PROJECT_GITHUB_ISSUES="${PROJECT_GITHUB_ISSUES}"
-        PROJECT_VERSION="${PROJECT_VERSION}"
-        PROJECT_VERSION_SHORT="${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
-        BUILD_NUMBER="${BUILD_NUMBER}"
-        PROJECT_NAME_LOWERCASE="${PROJECT_NAME_LOWERCASE}"
-        PROJECT_QT_VERSION="${Qt5Core_VERSION}"        
-        MongoDB_VERSION="${MongoDB_VERSION}"
-        OPENSSL_VERSION="${OPENSSL_VERSION}"
-        LIBSSH2_VERSION="${LIBSSH2_VERSION}"
-        QJSON_VERSION="${QJSON_VERSION}"
-        GOOGLE_TEST_VERSION="${GOOGLE_TEST_VERSION}"
-        ESPRIMA_VERSION="${ESPRIMA_VERSION}"
-)
-
-if(SYSTEM_WINDOWS)
-    # Create Windows Resource file
-    set(windows_icon "${CMAKE_SOURCE_DIR}/install/windows/robomongo.ico")
-    configure_file(
-        "${CMAKE_SOURCE_DIR}/install/windows/winres.rc.in"
-        "${CMAKE_BINARY_DIR}/winres.rc")
-    unset(windows_icon)
-
-    # Add additional source file to "robomongo" target
-    target_sources(robomongo PRIVATE "${CMAKE_BINARY_DIR}/winres.rc")
-
-    # Rename output name for Windows
-    set_target_properties(robomongo PROPERTIES OUTPUT_NAME "robo3t")
-
-    # Suppress "warning C4477: 'sprintf'..." from robomongo\shell\db\ptimeutil.cpp
-    # Suppress "warning C4291: ...no matching operator delete found" from third_party\mozjs-60
-    set_target_properties(robomongo PROPERTIES COMPILE_FLAGS "/wd4477 /wd4291")
-
-    # Start debug program with console
-    set_target_properties(robomongo PROPERTIES LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE")
-
-    # Seems that we do not need to do this with recent versions of Qt
-    target_link_libraries(robomongo PRIVATE Qt5::WinMain)
-
-elseif(SYSTEM_MACOSX)
-    string(TIMESTAMP CURRENT_YEAR "%Y")
     set_target_properties(robomongo PROPERTIES
-        INSTALL_RPATH "@executable_path/../Frameworks"
         OUTPUT_NAME "Robo 3T"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/install/macosx/Info.plist.in"
         MACOSX_BUNDLE_BUNDLE_NAME "Robo 3T"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.3tsoftwarelabs.robo3t"
-        MACOSX_BUNDLE_INFO_STRING "Robo 3T ${PROJECT_VERSION}. Copyright 3T Software Labs Ltd, 2014 - ${CURRENT_YEAR}"
-        MACOSX_BUNDLE_SHORT_VERSION "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_LONG_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_LONG_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_COPYRIGHT "Copyright 3T Software Labs Ltd, 2014 - ${CURRENT_YEAR}"
-        MACOSX_BUNDLE_ICON_FILE "robomongo")
-
-elseif(SYSTEM_LINUX)
-    set_target_properties(robomongo PROPERTIES
-        INSTALL_RPATH "$ORIGIN/../lib"
-        OUTPUT_NAME "robo3t")
+        MACOSX_BUNDLE_ICON_FILE "robomongo"
+        INSTALL_RPATH "@executable_path/../Frameworks")
+    install(TARGETS robomongo BUNDLE DESTINATION .)
+    set(ROBO_RESOURCES "Robo 3T.app/Contents/Resources")
+    install(FILES "${CMAKE_SOURCE_DIR}/install/macosx/robomongo.icns" DESTINATION "${ROBO_RESOURCES}")
+else()
+    set_target_properties(robomongo PROPERTIES OUTPUT_NAME robo3t)
+    install(TARGETS robomongo RUNTIME DESTINATION bin)
+    set(ROBO_RESOURCES share/robo3t)
 endif()
-
-# Install
-include(RobomongoInstall)
-
-#
-# Tests targets (code below should be moved to separate file)
-add_executable(tests WIN32 EXCLUDE_FROM_ALL app/main_test.cpp gui/editors/JSLexer.cpp)
-target_link_libraries(tests Qt5::Widgets qjson qscintilla mongodb Threads::Threads)
-target_include_directories(tests
-    PRIVATE
-        ${CMAKE_HOME_DIRECTORY}/src)
-
-# Target that creates original MongoDB shell
-# Used to test compilation and linking
-add_executable(shell EXCLUDE_FROM_ALL shell/shell/dbshell.cpp)
-target_link_libraries(shell
-    mongodb
-    Threads::Threads)       # Target from FindThreads CMake module
+qt_generate_deploy_app_script(TARGET robomongo OUTPUT_SCRIPT deploy_script NO_UNSUPPORTED_PLATFORM_ERROR)
+install(SCRIPT ${deploy_script})
+install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_SOURCE_DIR}/COPYRIGHT" DESTINATION "${ROBO_RESOURCES}")
+install(PROGRAMS "${ROBOMONGO_NODE_EXECUTABLE}" DESTINATION "${ROBO_RESOURCES}/runtime")
+install(FILES "${ROBOMONGO_RUNTIME_DIR}/mongosh-bridge.js" "${ROBOMONGO_RUNTIME_DIR}/package.json" "${ROBOMONGO_RUNTIME_DIR}/package-lock.json" DESTINATION "${ROBO_RESOURCES}/runtime")
+install(DIRECTORY "${ROBOMONGO_NODE_MODULES}" DESTINATION "${ROBO_RESOURCES}/runtime")
+install(FILES "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md" DESTINATION "${ROBO_RESOURCES}")
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION "${ROBO_RESOURCES}")
+if(APPLE)
+    configure_file("${CMAKE_SOURCE_DIR}/install/macosx/SignBundle.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/SignBundle.cmake" @ONLY)
+    install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/SignBundle.cmake")
+endif()

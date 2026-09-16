@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-
-BIN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"       # Get directory of this file
-PROJECT_DIR=$(dirname $BIN_DIR)                                   # Get root directory of project
-
-source $BIN_DIR/build || exit $?
-source $BIN_DIR/run-tests $1
+set -euo pipefail
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cmake --build "$repo_dir/build/arm64" --parallel "${ROBOMONGO_JOBS:-6}"
+exec ctest --test-dir "$repo_dir/build/arm64" --output-on-failure "$@"

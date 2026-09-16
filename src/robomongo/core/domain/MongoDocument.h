@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QStringList>
-#include <mongo/bson/bsonobj.h>
+#include "robomongo/core/bson/Bson.h"
 
 #include "robomongo/core/Core.h"
 

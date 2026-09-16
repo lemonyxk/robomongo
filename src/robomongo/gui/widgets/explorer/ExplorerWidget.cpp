@@ -1,9 +1,12 @@
 #include "robomongo/gui/widgets/explorer/ExplorerWidget.h"
 
-#include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QLabel>
 #include <QMovie>
 #include <QKeyEvent>
+#include <QShowEvent>
+#include <QHideEvent>
+#include <QResizeEvent>
 
 #include "robomongo/core/AppRegistry.h"
 #include "robomongo/core/domain/App.h"
@@ -27,21 +30,23 @@ namespace Robomongo
     {
         _treeWidget = new ExplorerTreeWidget(this);
 
-        QHBoxLayout *vlaout = new QHBoxLayout();
-        vlaout->setMargin(0);
-        vlaout->addWidget(_treeWidget, Qt::AlignJustify);
+        auto *layout = new QVBoxLayout();
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+        layout->addWidget(_treeWidget, 1);
 
         VERIFY(connect(_treeWidget, SIGNAL(itemExpanded(QTreeWidgetItem *)), this, SLOT(ui_itemExpanded(QTreeWidgetItem *))));
         VERIFY(connect(_treeWidget, SIGNAL(itemDoubleClicked(QTreeWidgetItem *, int)), 
                        this, SLOT(ui_itemDoubleClicked(QTreeWidgetItem *, int))));
 
-        setLayout(vlaout);
+        setLayout(layout);
 
         QMovie *movie = new QMovie(":robomongo/icons/loading.gif", QByteArray(), this);
+        movie->setCacheMode(QMovie::CacheAll);
         _progressLabel = new QLabel(this);
+        _progressLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
         _progressLabel->setMovie(movie);
         _progressLabel->hide();
-        movie->start();        
     }
 
     ExplorerWidget::~ExplorerWidget()
@@ -84,7 +89,7 @@ namespace Robomongo
     {
         auto size { getSetting("ExplorerWidget/size").toSize() };        
         if(QSize(-1, -1) == size)
-           size = QSize(180, -1);
+           size = QSize(240, -1);
 
         return(size);
     }
@@ -92,8 +97,13 @@ namespace Robomongo
     void ExplorerWidget::increaseProgress()
     {
         ++_progress;
+        if (_progress != 1)
+            return;
         _progressLabel->move(width() / 2 - 8, height() / 2 - 8);
         _progressLabel->show();
+        _progressLabel->raise();
+        if (isVisible())
+            _progressLabel->movie()->start();
     }
 
     void ExplorerWidget::decreaseProgress()
@@ -103,8 +113,29 @@ namespace Robomongo
         if (_progress < 0)
             _progress = 0;
 
-        if (!_progress)
+        if (!_progress) {
             _progressLabel->hide();
+            _progressLabel->movie()->stop();
+        }
+    }
+
+    void ExplorerWidget::showEvent(QShowEvent *event)
+    {
+        BaseClass::showEvent(event);
+        if (_progress > 0)
+            _progressLabel->movie()->start();
+    }
+
+    void ExplorerWidget::hideEvent(QHideEvent *event)
+    {
+        _progressLabel->movie()->stop();
+        BaseClass::hideEvent(event);
+    }
+
+    void ExplorerWidget::resizeEvent(QResizeEvent *event)
+    {
+        BaseClass::resizeEvent(event);
+        _progressLabel->move(width() / 2 - 8, height() / 2 - 8);
     }
 
     void ExplorerWidget::handle(ConnectingEvent *event)

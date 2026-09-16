@@ -14,9 +14,11 @@ namespace Robomongo
         colums << "Name" << "Count" << "Size" << "Storage" << "Index" << "Average Object" << "Padding";
         setHeaderLabels(colums);
 
-        setStyleSheet(
-            "QTreeWidget { border-left: 1px solid #c7c5c4; border-top: 1px solid #c7c5c4; }"
-        );
+        setUniformRowHeights(true);
+        setAnimated(false);
+        setAlternatingRowColors(true);
+        setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        header()->setResizeContentsPrecision(100);
 
         QList<QTreeWidgetItem *> items;
         size_t documentsCount = documents.size();

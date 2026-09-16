@@ -3,6 +3,7 @@
 #include <QWidget>
 QT_BEGIN_NAMESPACE
 class QLineEdit;
+class QPushButton;
 QT_END_NAMESPACE
 
 namespace Robomongo
@@ -29,7 +30,12 @@ namespace Robomongo
         void refresh();
 
     private:
+        bool pageValues(int &skip, int &limit) const;
+        void updateNavigation();
+
         QLineEdit *_skipEdit;
         QLineEdit *_batchSizeEdit;
+        QPushButton *_leftButton;
+        QPushButton *_rightButton;
     };
 }

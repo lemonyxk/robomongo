@@ -1,507 +1,238 @@
 #include "robomongo/core/engine/ScriptEngine.h"
-
-#include <QVector> // unable to put this include below. doesn't compile on GCC 4.7.2 and Qt 4.8
+#include <QCoreApplication>
 #include <QDir>
-#include <QStringList>
-#include <QRegExp>
-#include <QTextStream>
-#include <QFile>
 #include <QElapsedTimer>
-
-// v0.9
-//#include <third_party/js-1.7/jsapi.h>
-//#include <third_party/js-1.7/jsparse.h>
-//#include <third_party/js-1.7/jsscan.h>
-//#include <third_party/js-1.7/jsstr.h>
-
-#include <mongo/util/assert_util.h>
-#include <mongo/util/exit_code.h>
-#include <mongo/scripting/engine.h>
-
-// v0.9
-//#include <mongo/scripting/engine_spidermonkey.h>
-#include <mongo/scripting/mozjs/engine.h>
-
-#include <mongo/shell/shell_utils.h>
-#include <mongo/base/string_data.h>
-#include <mongo/client/dbclient_base.h>
-#include <pcrecpp.h>
-
-#include "robomongo/core/events/MongoEvents.h"
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QProcess>
+#include <algorithm>
+#include <stdexcept>
+#include "robomongo/core/mongodb/MongoConnection.h"
 #include "robomongo/core/settings/ConnectionSettings.h"
-#include "robomongo/core/settings/CredentialSettings.h"
-#include "robomongo/core/domain/MongoDocument.h"
-#include "robomongo/core/utils/Logger.h"
-#include "robomongo/core/utils/QtUtils.h"
 
-namespace
-{
-    std::vector<std::string> split(const std::string &s, char seperator)
-    {
-        std::vector<std::string> output;
-        std::string::size_type prev_pos = 0, pos = 0;
-        while ((pos = s.find(seperator, pos)) != std::string::npos) {
-            std::string substring(s.substr(prev_pos, pos-prev_pos));
-            output.push_back(substring);
-            prev_pos = ++pos;
-        }
-        output.push_back(s.substr(prev_pos, pos-prev_pos)); // Last word
-        return output;
-    }
+namespace {
+class ShellRpcError : public std::runtime_error {
+public:
+    explicit ShellRpcError(const QJsonObject& error)
+        : std::runtime_error(error.value("message").toString().toStdString()),
+          timedOut(error.value("data").toObject().value("timedOut").toBool()) {}
+    bool timedOut;
+};
 }
+namespace Robomongo {
+ScriptEngine::ScriptEngine(ConnectionSettings* connection, int timeoutSec)
+    : _connection(connection), _timeoutSec(timeoutSec) {}
+ScriptEngine::~ScriptEngine() { stopRuntime(); }
 
-namespace mongo {
-    extern bool isShell;
-    void logProcessDetailsForLogRotate() {}
+void ScriptEngine::startRuntime() {
+    stopRuntime();
+    QString runtimeDir = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../Resources/runtime");
+    QString node = QDir(runtimeDir).absoluteFilePath("node");
+    if (!QFileInfo::exists(node) || !QFileInfo::exists(QDir(runtimeDir).filePath("mongosh-bridge.js"))) {
+        runtimeDir = QString::fromUtf8(ROBOMONGO_RUNTIME_DIR);
+        node = QString::fromUtf8(ROBOMONGO_NODE_EXECUTABLE);
+    }
+    QString const bridge = QDir(runtimeDir).absoluteFilePath("mongosh-bridge.js");
+    if (!QFileInfo::exists(node) || !QFileInfo::exists(bridge))
+        throw std::runtime_error("The bundled mongosh runtime is missing. Rebuild or reinstall Robo 3T.");
+    _process = std::make_unique<QProcess>();
+    _process->setProcessChannelMode(QProcess::SeparateChannels);
+    _process->setProgram(node);
+    _process->setArguments({bridge});
+    _process->start();
+    if (!_process->waitForStarted(10000)) {
+        _failedScope = true;
+        throw std::runtime_error("Failed to start mongosh: " + _process->errorString().toStdString());
+    }
+    _readBuffer.clear();
+    _diagnostics.clear();
+    _interrupted = false;
 }
-
-namespace Robomongo
-{
-    ScriptEngine::ScriptEngine(ConnectionSettings *connection, int timeoutSec) :
-        _connection(connection),
-        _scope(nullptr),
-        _engine(NULL),
-        _timeoutSec(timeoutSec),
-        _initialized(false),
-        _mutex(QMutex::Recursive) { }
-
-    ScriptEngine::~ScriptEngine()
-    {
-    }
-
-    void ScriptEngine::init(bool isLoadMongoRcJs, const std::string& serverAddr, const std::string& dbName)
-    {
-        QMutexLocker lock(&_mutex);
-
-        std::string connectDatabase = dbName.empty() ? "test" : dbName;
-
-        if (_connection->hasEnabledPrimaryCredential())
-            connectDatabase = _connection->primaryCredential()->databaseName();
-
-        std::stringstream ss;
-        auto hostAndPort = serverAddr.empty() ? _connection->hostAndPort().toString() : serverAddr;
-        ss << "db = connect('" << hostAndPort << "/" << connectDatabase;
-
-//        v0.9
-//        ss << "db = connect('" << _connection->serverHost() << ":" << _connection->serverPort() << _connection->sslInfo() << _connection->sshInfo() << "/" << connectDatabase;
-
-        if (!_connection->hasEnabledPrimaryCredential())
-            ss << "')";
-        else
-            ss << "', '"
-               << _connection->primaryCredential()->userName() << "', '"
-               << _connection->primaryCredential()->userPassword() << "')";
-
-        {
-            mongo::shell_utils::dbConnect = ss.str();
-
-            // v0.9
-            // mongo::isShell = true;
-
-            mongo::ScriptEngine::setConnectCallback( mongo::shell_utils::onConnect );
-            mongo::ScriptEngine::setup();            
-            mongo::getGlobalScriptEngine()->setScopeInitCallback(mongo::shell_utils::initScope);
-            mongo::getGlobalScriptEngine()->enableJIT(true);
-
-            _scope.reset(mongo::getGlobalScriptEngine()->newScope());
-            _engine = mongo::getGlobalScriptEngine();
-
-            // Load '.mongorc.js' from user's home directory
-            if (isLoadMongoRcJs) {
-                QString mongorcPath = QString("%1/.mongorc.js").arg(QDir::homePath());
-                if (QFile::exists(mongorcPath)) {
-                    _scope->execFile(QtUtils::toStdString(mongorcPath), false, false);
-                }
-            }
-
-            // Load '.robomongorc.js'
-            QString robomongorcPath = QString("%1/.robomongorc.js").arg(QDir::homePath());
-            if (QFile::exists(robomongorcPath)) {
-                _scope->execFile(QtUtils::toStdString(robomongorcPath), false, false);
-            }
-            _failedScope = false;
+void ScriptEngine::stopRuntime() {
+    if (!_process) return;
+    if (_process->state() != QProcess::NotRunning) {
+        _process->closeWriteChannel();
+        if (!_process->waitForFinished(1000)) {
+            _process->kill();
+            _process->waitForFinished(1000);
         }
-
-        // Esprima ECMAScript parser: http://esprima.org/
-        std::string esprima = loadFile(":/robomongo/scripts/esprima.js", true);
-        _scope->exec(esprima, "(esprima)", false, true, true);
-
-        // UUID helpers
-        std::string uuidhelpers = loadFile(":/robomongo/scripts/uuidhelpers.js", true);
-        _scope->exec(uuidhelpers, "(uuidhelpers)", false, true, true);
-
-        // Enable verbose shell reporting
-        _scope->exec("_verboseShell = true;", "(verboseShell)", false, false, false);
-
-        // Save original autocomplete function so it can be restored if overwritten by user preference
-        _scope->exec("DB.autocompleteOriginal = DB.autocomplete;", "(saveOriginalAutocomplete)", false, false, false);
-
-        // Cache result of original "DB.autocomplete"
-        // Cache invalidated by the invalidateDbCollectionsCache() method.
-        std::string const cacheAutocompletion =
-            "__robomongoAutocompletionCache = null;"
-            "DB.autocompleteCached = function(obj) { "
-            "   if (__robomongoAutocompletionCache == null) {"
-            "       __robomongoAutocompletionCache = DB.autocompleteOriginal(obj);"
-            "   }"
-            "   return __robomongoAutocompletionCache;"
-            "}";
-
-        _scope->exec(cacheAutocompletion, "", false, false, false);
-
-        // Capture aggregate parameters: pipeline, options
-        std::string const aggregateInterceptor =
-            "__robomongoAggregateUsed = false;"
-            "__robomongoAggregate = DBCollection.prototype.aggregate;"
-            "__robomongoAggregatePipeline = null;"
-            "__robomongoAggregateOptions = null;"
-            "DBCollection.prototype.aggregate = function(pipeline, options) { "
-            "   __robomongoAggregateUsed = true;"
-            "   __robomongoAggregatePipeline = pipeline;"
-            "   __robomongoAggregateOptions = options;"
-            "   return __robomongoAggregate.call(this, pipeline, options);"
-            "}";
-
-        _scope->exec(aggregateInterceptor, "", false, false, false);
-
-        _initialized = true;
     }
-
-    MongoShellExecResult ScriptEngine::exec(const std::string &originalScript, const std::string &dbName, 
-                                            AggrInfo aggrInfo /* = AggrInfo() */)
-    {
-        QMutexLocker lock(&_mutex);
-
-        if (!_scope) {
+    _process.reset();
+    _initialized = false;
+}
+QJsonObject ScriptEngine::exchange(const QString& method, const QJsonObject& params, int timeoutMs) {
+    if (!_process || _process->state() == QProcess::NotRunning) {
+        _failedScope = true;
+        throw std::runtime_error("The mongosh process is not running. Reconnect to start a new shell.");
+    }
+    qint64 const id = ++_requestId;
+    QJsonObject const request {{"jsonrpc", "2.0"}, {"id", id}, {"method", method}, {"params", params}};
+    _process->write(QJsonDocument(request).toJson(QJsonDocument::Compact) + '\n');
+    if (_process->bytesToWrite() > 0 && !_process->waitForBytesWritten(5000))
+        throw std::runtime_error("Failed to send a request to mongosh.");
+    QElapsedTimer timer;
+    timer.start();
+    bool interruptSent = false;
+    while (true) {
+        if (_interrupted.exchange(false) && !interruptSent) {
+            QJsonObject const interruptRequest {{"jsonrpc", "2.0"}, {"id", ++_requestId},
+                {"method", "interrupt"}, {"params", QJsonObject()}};
+            _process->write(QJsonDocument(interruptRequest).toJson(QJsonDocument::Compact) + '\n');
+            interruptSent = true;
+        }
+        _readBuffer += _process->readAllStandardOutput();
+        _diagnostics += _process->readAllStandardError();
+        if (_diagnostics.size() > 65536) _diagnostics = _diagnostics.right(65536);
+        qsizetype newline;
+        while ((newline = _readBuffer.indexOf('\n')) >= 0) {
+            QByteArray const line = _readBuffer.left(newline);
+            _readBuffer.remove(0, newline + 1);
+            QJsonParseError parseError;
+            QJsonDocument const document = QJsonDocument::fromJson(line, &parseError);
+            if (parseError.error != QJsonParseError::NoError || !document.isObject())
+                throw std::runtime_error("Received an invalid JSON response from mongosh.");
+            QJsonObject const response = document.object();
+            if (response.value("id").toInteger() != id) continue;
+            if (response.contains("error")) {
+                QJsonObject const error = response.value("error").toObject();
+                if (error.value("data").toObject().value("workerFailed").toBool()) _failedScope = true;
+                throw ShellRpcError(error);
+            }
+            return response.value("result").toObject();
+        }
+        if (_process->state() == QProcess::NotRunning) {
             _failedScope = true;
-            return MongoShellExecResult(true, "Connection error. Uninitialized mongo scope.");
+            throw std::runtime_error("The mongosh process exited. " + _diagnostics.toStdString());
         }
-
-        // robomongo shell timeout
-        bool timeoutReached = false;
-
-        /*
-         * Replace all commands ('show dbs', 'use db' etc.) with call
-         * to shellHelper('show', 'dbs') and so on.
-         */
-        std::string stdstr(originalScript);
-
-        pcrecpp::RE re("^(show|use|set) (\\w+)$",
-            pcrecpp::RE_Options(PCRE_CASELESS|PCRE_MULTILINE|PCRE_NEWLINE_ANYCRLF));
-
-        re.GlobalReplace("shellHelper('\\1', '\\2');", &stdstr);
-
-        /*
-         * Statementize (i.e. extract all JavaScript statements from script) and
-         * execute each statement one by one
-         */
-        std::vector<std::string> statements;
-        std::string error;
-        bool result = statementize(stdstr, statements, error);
-
-        if (!result && statements.size() == 0)
-            statements.push_back("print(__robomongoResult.error)");
-
-        std::vector<MongoShellResult> results;
-
-        use(dbName);
-
-        for (auto const& statement : statements) {
-            // clear global objects
-            __objects.clear();
-            __type = "";
-            __finished = false;
-            __logs.str("");
-
-            if (true /* ! wascmd */) {
-                try {
-                    bool failed = false;
-                    QElapsedTimer timer;
-                    timer.start();
-                    if ( _scope->exec( statement , "(shell)" , false , true , false, _timeoutSec * 1000) ) {
-                         _scope->exec( "__robomongoLastRes = __lastres__; shellPrintHelper( __lastres__ );", 
-                                      "(shell2)" , true , true , false, _timeoutSec * 1000);
-                    }
-                    else   // failed to run script 
-                        failed = true;                               
-
-                    qint64 elapsed = timer.elapsed();   // milliseconds 
-
-                    if (elapsed > _timeoutSec * 1000)
-                        timeoutReached = true;
-
-                    std::string logs = __logs.str();
-                    std::string answer = logs.c_str();
-                    std::string type = __type.c_str();
-
-                    if (failed && !timeoutReached)
-                        return MongoShellExecResult(true, answer);
-
-                    std::vector<MongoDocumentPtr> docs = MongoDocument::fromBsonObj(__objects);
-
-                    if (!answer.empty() || docs.size() > 0)
-                        results.push_back(
-                            prepareResult(type, answer, docs, elapsed, statement, aggrInfo)
-                        );
-                }
-                catch (const std::exception &e) {
-                    std::cout << "error:" << e.what() << std::endl;
-                }
-            }
+        // The bridge interrupts at timeoutMs; this watchdog also handles a crashed bridge.
+        if (timeoutMs > 0 && timer.elapsed() > timeoutMs + 15000) {
+            _failedScope = true;
+            stopRuntime();
+            throw ShellRpcError(QJsonObject {{"message", "Shell timed out. Variables and cursors have been reset; reconnect to continue."},
+                {"data", QJsonObject {{"timedOut", true}, {"contextReset", true}}}});
         }
-
-        return prepareExecResult(results, timeoutReached);
-    }
-
-    void ScriptEngine::interrupt()
-    {
-        // This operation crash Robomongo
-        // static_cast<mongo::mozjs::MozJSImplScope*>(_scope)->kill();
-
-        // v0.9
-        //mongo::Scope::_interruptFlag = true;
-    }
-
-    void ScriptEngine::use(const std::string &dbName)
-    {
-        QMutexLocker lock(&_mutex);
-
-        if (!dbName.empty()) {
-            std::stringstream ss;
-
-            // Switch to database
-            ss << "shellHelper.use('" << dbName << "');" << std::endl;
-
-            // Always allow to read from slave
-            ss << "rs.slaveOk();" << std::endl;
-
-            _scope->exec(ss.str(), "(usedb)", false, true, false);
-        }
-    }
-
-    void ScriptEngine::setBatchSize(int batchSize)
-    {
-        QMutexLocker lock(&_mutex);
-
-        char buff[64] = {0};
-        sprintf(buff, "DBQuery.shellBatchSize = %d", batchSize);
-
-        _scope->exec(buff, "(shellBatchSize)", false, true, true);
-    }
-
-    void ScriptEngine::ping()
-    {
-        if (!_scope)
-            return;
-
-        QMutexLocker lock(&_mutex);
-        _scope->exec("if (db) { db.runCommand({ping:1}); }", "(ping)", false, false, false, 3000);
-    }
-
-    QStringList ScriptEngine::complete(const std::string &prefix, const AutocompletionMode mode)
-    {
-        //if ( prefix.find( '"' ) != string::npos )
-        //    return;
-
-        try {
-            if (mode == AutocompleteAll)
-                _scope->exec("DB.autocomplete = DB.autocompleteCached;", "", false, false, false);
-            else if (mode == AutocompleteNoCollectionNames)
-                _scope->exec("DB.autocomplete = function(obj){return [];}", "", false, false, false);
-
-            QStringList results;
-            mongo::BSONObj args = BSON( "0" << prefix );
-
-            _scope->invokeSafe( "function callShellAutocomplete(x) {shellAutocomplete(x)}", &args, 0, 1000 );
-            mongo::BSONObjBuilder b;
-            _scope->append( b , "" , "__autocomplete__" );
-            mongo::BSONObj res = b.obj();
-            mongo::BSONObj arr = res.firstElement().Obj();
-
-            mongo::BSONObjIterator i( arr );
-            while ( i.more() ) {
-                mongo::BSONElement e = i.next();
-                results.append(QtUtils::toQString(e.String()));
-            }
-            return results;
-        }
-        catch ( ... ) {
-            return QStringList();
-        }
-        return QStringList();
-    }
-
-    MongoShellResult ScriptEngine::prepareResult(const std::string &type, const std::string &output,
-                                                 const std::vector<MongoDocumentPtr> &objects, qint64 elapsedms,
-                                                 const std::string &statement, AggrInfo aggrInfo /*= AggrInfo()*/)
-    {
-        const char *script =
-            "__robomongoQuery = false; \n"
-            "__robomongoIsAggregate = false; \n"
-            "__robomongoDbName = '[invalid database]'; \n"
-            "__robomongoServerAddress = '[invalid connection]'; \n"
-            "__robomongoCollectionName = '[invalid collection]'; \n"
-            "if (typeof __robomongoLastRes == 'object' && __robomongoLastRes != null \n"
-            "    && __robomongoLastRes instanceof DBQuery) { \n"
-            "    __robomongoQuery = true; \n"
-            "    __robomongoDbName = __robomongoLastRes._db.getName();\n "
-            "    __robomongoServerAddress = __robomongoLastRes._mongo.host; \n"
-            "    __robomongoCollectionName = __robomongoLastRes._collection._shortName; \n"
-            "    __robomongoQuery = __robomongoLastRes._query; \n"
-            "    __robomongoFields = __robomongoLastRes._fields; \n"
-            "    __robomongoLimit = __robomongoLastRes._limit; \n"
-            "    __robomongoSkip = __robomongoLastRes._skip; \n"
-            "    __robomongoBatchSize = __robomongoLastRes._batchSize; \n"
-            "    __robomongoOptions = __robomongoLastRes._options; \n"
-            "    __robomongoSpecial = __robomongoLastRes._special; \n"
-            "} \n"
-            "else if (typeof __robomongoLastRes == 'object' && __robomongoLastRes != null \n"
-            "         && __robomongoLastRes instanceof DBCommandCursor \n"
-            "         && __robomongoAggregateUsed) { \n"
-            "    __robomongoAggregateUsed = false; \n"    
-            "    __robomongoIsAggregate = true; \n"
-            "    __robomongoDbName = __robomongoLastRes._db.getName();\n "
-            "    __robomongoServerAddress = __robomongoLastRes._db._mongo.host; \n"
-            "    __robomongoCollectionName = __robomongoLastRes._collName; \n"
-            "} \n"
-            ;
-
-        _scope->exec(script, "(getresultinfo)", false, false, false);
-        bool const isQuery = _scope->getBoolean("__robomongoQuery");
-        bool const isAggregate = _scope->getBoolean("__robomongoIsAggregate");
-
-        if (isQuery) {
-            std::string serverAddress = getString("__robomongoServerAddress");
-            std::string dbName = getString("__robomongoDbName");
-            std::string collectionName = getString("__robomongoCollectionName");
-               
-            mongo::BSONObj query = _scope->getObject("__robomongoQuery");
-            mongo::BSONObj fields = _scope->getObject("__robomongoFields");
-
-            int limit = _scope->getNumberInt("__robomongoLimit");
-            int skip = _scope->getNumberInt("__robomongoSkip");
-            int batchSize = _scope->getNumberInt("__robomongoBatchSize");
-            int options = _scope->getNumberInt("__robomongoOptions");
-
-            bool special = _scope->getBoolean("__robomongoSpecial");
-
-            MongoQueryInfo const info{ CollectionInfo(serverAddress, dbName, collectionName),
-                                       query, fields, limit, skip, batchSize, options, special };
-            return MongoShellResult(type, output, objects, info, statement, elapsedms);
-        }
-        else if (isAggregate) {
-            std::string const serverAddress = getString("__robomongoServerAddress");
-            std::string const dbName = getString("__robomongoDbName");
-            std::string const collectionName = getString("__robomongoCollectionName");
-            mongo::BSONObj const pipeline = _scope->getObject("__robomongoAggregatePipeline");
-            mongo::BSONObj const options = _scope->getObject("__robomongoAggregateOptions");
-
-            // This query can be paging of an original aggr. query, we store the original/unpaged 
-            // pipeline object here.
-            mongo::BSONObj const origPipeline = aggrInfo.isValid ? aggrInfo.pipeline : pipeline;
-            int const skip = aggrInfo.isValid ? aggrInfo.skip : 0;
-            int const batchSize = aggrInfo.isValid ? aggrInfo.batchSize : 50;
-            int const resultIndex = aggrInfo.isValid ? aggrInfo.resultIndex : -1;
-
-            AggrInfo const newAggrInfo { collectionName, skip, batchSize, origPipeline, options, resultIndex };
-            return MongoShellResult(type, output, objects, MongoQueryInfo(), statement, elapsedms, newAggrInfo);
-        }
-        return MongoShellResult(type, output, objects, MongoQueryInfo(), statement, elapsedms);
-    }
-
-    MongoShellExecResult ScriptEngine::prepareExecResult(const std::vector<MongoShellResult> &results, 
-                                                         bool timeoutReached /* = false */)
-    {
-        const char *script =
-            "__robomongoServerAddress = '[invalid connection]'; \n"
-            "__robomongoServerIsValid = false; \n"
-            "__robomongoDbName = '[invalid database]'; \n"
-            "__robomongoDbIsValid = false; \n"
-            "if (typeof db == 'object' && db != null && db instanceof DB) { \n"
-            "    __robomongoServerAddress = db.getMongo().host; \n"
-            "    __robomongoServerIsValid = true; \n"
-            "    __robomongoDbName = db.getName();\n "
-            "    __robomongoDbIsValid = true; \n "
-            "} \n";
-
-        _scope->exec(script, "(getdbname)", false, false, false);
-
-        std::string serverName = getString("__robomongoServerAddress");
-        bool serverIsValid = _scope->getBoolean("__robomongoServerIsValid");
-
-        std::string dbName = getString("__robomongoDbName");
-        bool dbIsValid = _scope->getBoolean("__robomongoDbIsValid");
-
-        return MongoShellExecResult(results, serverName, serverIsValid, dbName, dbIsValid, timeoutReached);
-    }
-
-    std::string ScriptEngine::getString(const char *fieldName)
-    {
-        return _scope->getString(fieldName);
-    }
-
-    bool ScriptEngine::statementize(
-        const std::string &script, std::vector<std::string> &outVec, std::string &outError)
-    {
-        _scope->setString("__robomongoEsprima", script.c_str());
-
-        mongo::StringData const data {
-            "var __robomongoResult = {};"
-            "try {"
-                "__robomongoResult.result = esprima.parse(__robomongoEsprima, { range: true, loc : true });"
-            "} catch(e) {"
-                "__robomongoResult.error = e.name + ': ' + e.message;"
-            "}"
-            "__robomongoResult;"
-        };
-
-        if(!_scope->exec(data, "(esprima2)", false, true, false)) {
-            sendLog(this, LogEvent::RBM_ERROR, "ScriptEngine: Scope failed. Resetting scope.");
-            _scope->reset();
-            sendLog(this, LogEvent::RBM_INFO, "ScriptEngine: Scope reset complete.");
-            _scope->exec(data, "(esprima2)", false, true, false);
-        }
-
-        mongo::BSONObj const obj = _scope->getObject("__lastres__");
-        if (obj.hasField("error")) {
-            outError = obj.getField("error");
-            return false;
-        }
-
-        for (auto const& bsonElem : obj.getField("result").Obj().getField("body").Array())
-        {
-            mongo::BSONObj const item = bsonElem.Obj();
-            std::vector<mongo::BSONElement> const range = item.getField("range").Array();
-            auto const from = static_cast<int>(range.at(0).number());
-            auto const till = static_cast<int>(range.at(1).number());
-
-            QString const qScript = QtUtils::toQString(script);
-            std::string statement = qScript.mid(from, till - from).toStdString();
-            outVec.push_back(statement);
-        }
-
-        return true;
-    }
-
-    void ScriptEngine::invalidateDbCollectionsCache() {
-        if (!_initialized)
-            return;
-
-        _scope->exec("__robomongoAutocompletionCache = null;", "", false, false, false);
-    }
-
-    std::string ScriptEngine::loadFile(const QString &path, bool throwOnError) {
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly)) {
-            if (throwOnError)
-                throw std::runtime_error("Unable to load file");
-
-            return "";
-        }
-
-        QTextStream in(&file);
-        QString content = in.readAll();
-        return QtUtils::toStdString(content);
+        _process->waitForReadyRead(50);
     }
 }
-
+QJsonObject ScriptEngine::rpc(const QString& method, QJsonObject params, int timeoutMs) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    if (timeoutMs > 0) params.insert("timeoutMS", timeoutMs);
+    QJsonObject const result = exchange(method, params, timeoutMs);
+    if (result.contains("database")) _currentDatabase = result.value("database").toString().toStdString();
+    if (result.contains("server")) _currentServer = result.value("server").toString().toStdString();
+    return result;
+}
+void ScriptEngine::init(bool isLoadMongoRcJs, const std::string& serverAddr, const std::string& dbName) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    Q_UNUSED(serverAddr);
+    try {
+        startRuntime();
+        QJsonObject const params {{"uri", QString::fromStdString(makeConnectionUri(*_connection))},
+            {"options", makeTlsOptions(*_connection)}, {"batchSize", _batchSize},
+            {"database", QString::fromStdString(dbName.empty() ? _connection->defaultDatabase() : dbName)}};
+        rpc("connect", params, 30000);
+        _initialized = true;
+        _failedScope = false;
+        QString const configuredProfile = qEnvironmentVariable("ROBOMONGO_PROFILE_DIR");
+        QDir const profile(configuredProfile.isEmpty() ? QDir::homePath() : configuredProfile);
+        if (isLoadMongoRcJs) {
+            QString const modernRc = profile.filePath(".mongoshrc.js");
+            loadStartupFile(QFileInfo::exists(modernRc) ? modernRc : profile.filePath(".mongorc.js"));
+        }
+        loadStartupFile(profile.filePath(".robomongorc.js"));
+    } catch (...) { _failedScope = true; throw; }
+}
+void ScriptEngine::loadStartupFile(const QString& path) {
+    QFile file(path);
+    if (!file.exists()) return;
+    if (!file.open(QIODevice::ReadOnly))
+        throw std::runtime_error("Failed to open shell startup script: " + path.toStdString());
+    rpc("eval", QJsonObject {{"code", QString::fromUtf8(file.readAll())}, {"filename", path}},
+        std::max(0, _timeoutSec.load()) * 1000);
+}
+std::vector<MongoDocumentPtr> ScriptEngine::parseDocuments(const QJsonObject& result) const {
+    std::vector<MongoDocumentPtr> documents;
+    QJsonArray const values = result.value("documents").toArray();
+    documents.reserve(values.size());
+    for (const QJsonValue& value : values)
+        documents.push_back(MongoDocumentPtr(new MongoDocument(mongo::BSONObj::fromJson(value.toString().toStdString()))));
+    return documents;
+}
+MongoShellResult ScriptEngine::parseResult(const QJsonObject& result) const {
+    MongoQueryInfo info;
+    QJsonObject const query = result.value("queryInfo").toObject();
+    if (!query.isEmpty()) {
+        info = MongoQueryInfo(CollectionInfo(_currentServer, query.value("database").toString().toStdString(),
+            query.value("collection").toString().toStdString()),
+            mongo::BSONObj::fromJson(query.value("query").toString("{}").toStdString()),
+            mongo::BSONObj::fromJson(query.value("fields").toString("{}").toStdString()),
+            query.value("limit").toInt(), query.value("skip").toInt(), query.value("batchSize").toInt(_batchSize),
+            query.value("options").toInt(), query.value("special").toBool());
+    }
+    info.runtimeCursorId = result.value("cursorId").toString().toStdString();
+    info.readOnly = query.value("readOnly").toBool();
+    // The GUI's only custom renderer is collection statistics. Other mongosh
+    // type names must not enable an empty custom view.
+    std::string const type = result.value("type").toString() == "collectionStats" ? "collectionStats" : "";
+    return MongoShellResult(type, result.value("output").toString().toStdString(),
+        parseDocuments(result), info, result.value("statement").toString().toStdString(), result.value("elapsedMS").toInteger());
+}
+MongoShellExecResult ScriptEngine::exec(const std::string& script, const std::string& dbName, AggrInfo aggrInfo) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    Q_UNUSED(aggrInfo);
+    if (!_initialized) return MongoShellExecResult(true, "The mongosh shell has not been initialized.");
+    _interrupted = false;
+    try {
+        use(dbName);
+        QJsonObject const response = rpc("eval", QJsonObject {{"code", QString::fromStdString(script)},
+            {"batchSize", _batchSize}}, std::max(0, _timeoutSec.load()) * 1000);
+        std::vector<MongoShellResult> results;
+        for (const QJsonValue& value : response.value("results").toArray()) {
+            QJsonObject const item = value.toObject();
+            if (!item.value("documents").toArray().isEmpty() && !item.value("output").toString().isEmpty())
+                results.emplace_back("", item.value("output").toString().toStdString(),
+                    std::vector<MongoDocumentPtr>(), MongoQueryInfo(), item.value("statement").toString().toStdString(), 0);
+            if (!item.value("documents").toArray().isEmpty() || !item.value("output").toString().isEmpty() || item.contains("cursorId"))
+                results.push_back(parseResult(item));
+        }
+        return MongoShellExecResult(results, _currentServer, !_currentServer.empty(), _currentDatabase, !_currentDatabase.empty());
+    } catch (const ShellRpcError& error) { return MongoShellExecResult(true, error.what(), error.timedOut); }
+      catch (const std::exception& error) { return MongoShellExecResult(true, error.what()); }
+}
+std::vector<MongoDocumentPtr> ScriptEngine::queryPage(const MongoQueryInfo& info) {
+    if (info._limit == -1) return {};
+    return parseDocuments(rpc("cursorPage", QJsonObject {{"cursorId", QString::fromStdString(info.runtimeCursorId)},
+        {"skip", info._skip}, {"batchSize", info._batchSize}}, std::max(0, _timeoutSec.load()) * 1000));
+}
+void ScriptEngine::interrupt() {
+    // Called across threads: only the process-owning RPC loop may touch QProcess.
+    _interrupted = true;
+}
+void ScriptEngine::use(const std::string& dbName) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    if (_initialized && !dbName.empty() && dbName != _currentDatabase)
+        rpc("use", QJsonObject {{"database", QString::fromStdString(dbName)}}, 10000);
+}
+void ScriptEngine::setBatchSize(int batchSize) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    _batchSize = std::max(1, batchSize);
+    if (_initialized) rpc("setBatchSize", QJsonObject {{"batchSize", _batchSize}}, 5000);
+}
+void ScriptEngine::ping() { if (_initialized) rpc("ping", QJsonObject(), 5000); }
+QStringList ScriptEngine::complete(const std::string& prefix, AutocompletionMode mode) {
+    if (mode == AutocompleteNone || !_initialized) return {};
+    try {
+        QJsonObject const response = rpc("autocomplete", QJsonObject {{"code", QString::fromStdString(prefix)},
+            {"includeCollectionNames", mode == AutocompleteAll}}, 5000);
+        QStringList completions;
+        for (const QJsonValue& value : response.value("completions").toArray()) completions.append(value.toString());
+        return completions;
+    } catch (const std::exception&) { return {}; }
+}
+void ScriptEngine::invalidateDbCollectionsCache() {
+    if (_initialized) rpc("invalidateAutocomplete", QJsonObject(), 5000);
+}
+}

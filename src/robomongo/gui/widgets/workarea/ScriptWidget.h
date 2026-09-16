@@ -4,6 +4,7 @@
 QT_BEGIN_NAMESPACE
 class QLabel;
 class QCompleter;
+class QTimer;
 QT_END_NAMESPACE
 
 #include "robomongo/core/domain/MongoShellResult.h"
@@ -69,7 +70,7 @@ namespace Robomongo
         void showAutocompletion();
         void hideAutocompletion();
         bool getDisableTextAndCursorNotifications() { return _disableTextAndCursorNotifications; }
-        void setDisableTextAndCursorNotifications(const bool value) { _disableTextAndCursorNotifications = value; }
+        void setDisableTextAndCursorNotifications(bool value);
 
         void disableFixedHeight() const;
 
@@ -84,6 +85,7 @@ namespace Robomongo
         void onTextChanged();
         void onCursorPositionChanged(int line, int index);
         void onCompletionActivated(const QString&);
+        void onAutocompletionTimeout();
 
     private:
         void configureQueryText();
@@ -94,18 +96,6 @@ namespace Robomongo
         int lineHeight() const;
 
         /**
-         * @brief Calculates char width of text editor
-         */
-        int charWidth();
-
-        /**
-         * @brief Because of different fonts, differents OSes etc. we didn't find
-         * a better way to find required position for autocompletion box.
-         * We just hardcoded it.
-         */
-        int autocompletionBoxLeftPosition();
-
-        /**
          * @brief Calculates preferable editor height for specified number of lines
          */
         int editorHeight(int lines) const;
@@ -114,6 +104,7 @@ namespace Robomongo
         FindFrame *_queryText;
         TopStatusBar *_topStatusBar;
         QCompleter *_completer;
+        QTimer *_autocompletionTimer;
         MongoShell *_shell;
         AutoCompletionInfo _currentAutoCompletionInfo;
 

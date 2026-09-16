@@ -1,10 +1,8 @@
 #pragma once
 
+#include <QIcon>
+#include <QColor>
 #include <QWidget>
-QT_BEGIN_NAMESPACE
-class QIcon;
-class QLabel;
-QT_END_NAMESPACE
 
 namespace Robomongo
 {
@@ -14,10 +12,19 @@ namespace Robomongo
 
     public:
         Indicator(const QIcon &icon, const QString &text = QString());
+        QString text() const { return _text; }
         void setText(const QString &text);
+        QColor textColor() const { return _textColor; }
+        void setTextColor(const QColor &color);
+        QSize sizeHint() const override;
+        QSize minimumSizeHint() const override;
+
+    protected:
+        void paintEvent(QPaintEvent *event) override;
 
     private:
-        QLabel *createLabelWithIcon(const QIcon &icon);
-        QLabel *_label;
+        QIcon _icon;
+        QString _text;
+        QColor _textColor = QColor("#68788e");
     };
 }

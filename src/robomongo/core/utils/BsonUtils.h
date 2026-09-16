@@ -1,7 +1,6 @@
 #pragma once
 
-#include <mongo/bson/bsonelement.h>
-#include <mongo/bson/bsonobj.h>
+#include "robomongo/core/bson/Bson.h"
 
 #include "robomongo/core/Enums.h"
 
@@ -84,11 +83,12 @@ namespace Robomongo
             return bsonelement_cast<typename detail::bson_convert_traits<BSONType_t>::type>(elem);
         }
 
+        // UI text can omit integer constructors; serialized/copyable BSON keeps them by default.
         std::string jsonString(const mongo::BSONObj &obj, mongo::JsonStringFormat format, int pretty,
-            UUIDEncoding uuidEncoding, SupportedTimes timeFormat, bool isArray = false);
+            UUIDEncoding uuidEncoding, SupportedTimes timeFormat, bool isArray = false, bool plainIntegers = false);
 
         std::string jsonString(const mongo::BSONElement &elem, mongo::JsonStringFormat format, bool includeFieldNames, int pretty,
-            UUIDEncoding uuidEncoding, SupportedTimes timeFormat, bool isArray = false);
+            UUIDEncoding uuidEncoding, SupportedTimes timeFormat, bool isArray = false, bool plainIntegers = false);
 
         bool isArray(const mongo::BSONElement &elem);
         bool isArray(mongo::BSONType type);
@@ -111,4 +111,3 @@ namespace Robomongo
         std::string reformatDoubleString(QString str, double elemDouble);
     }
 }
-

@@ -2,8 +2,9 @@
 
 #include <vector>
 #include <QObject>
-#include <mongo/bson/bsonobj.h>
-#include <mongo/bson/bsonelement.h>
+#include <QHash>
+#include "robomongo/core/bson/Bson.h"
+#include "robomongo/core/Enums.h"
 
 namespace Robomongo
 {
@@ -14,8 +15,8 @@ namespace Robomongo
     {
         QString _key;
         QString _value;
-        mongo::BSONType _type;
-        mongo::BinDataType _binType;
+        mongo::BSONType _type = mongo::EOO;
+        mongo::BinDataType _binType = mongo::BinDataGeneral;
     };
 
     class BsonTreeItem : public QObject
@@ -44,6 +45,11 @@ namespace Robomongo
         BsonTreeItem* childSafe(unsigned pos) const;
         BsonTreeItem* childByKey(const QString &val);
         int indexOf(BsonTreeItem *item) const;
+        int row() const { return _row; }
+        int unfetchedChildCount() const { return _unfetchedChildCount; }
+        void setUnfetchedChildCount(int count) { _unfetchedChildCount = count; }
+        mongo::BSONObj childrenDocument() const;
+        void setElement(const mongo::BSONElement &element, UUIDEncoding uuidEncoding, SupportedTimes timeZone);
 
         const BsonTreeItem* superParent() const;
         mongo::BSONObj root() const;
@@ -57,6 +63,8 @@ namespace Robomongo
 
         QString value() const;
         void setValue(const QString &value);
+        QString displayValue(bool simplify) const;
+        QString toolTipValue() const;
 
         mongo::BSONType type() const;
         void setType(mongo::BSONType type);
@@ -68,7 +76,16 @@ namespace Robomongo
 
         const mongo::BSONObj _root;
         ChildContainerType _items;
-        BsonItemFields _fields;
+        QHash<QString, BsonTreeItem *> _itemsByKey;
+        mutable BsonItemFields _fields;
         std::string _fieldName;
+        mongo::BSONElement _element;
+        UUIDEncoding _uuidEncoding{};
+        SupportedTimes _timeZone{};
+        int _row = -1;
+        int _unfetchedChildCount = 0;
+        mutable bool _valueReady = true;
+        mutable QString _displayValue;
+        mutable bool _displayValueReady = false;
     };
 }

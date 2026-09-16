@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mongo/bson/bsonobj.h>
+#include "robomongo/core/bson/Bson.h"
 #include <QDialog>
 
 QT_BEGIN_NAMESPACE

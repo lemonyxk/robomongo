@@ -1,8 +1,5 @@
 #include "robomongo/core/domain/Notifier.h"
 
-#include <thread>
-#include <chrono>
-
 #include <QAction>
 #include <QClipboard>
 #include <QApplication>
@@ -16,9 +13,10 @@
 #include "robomongo/core/domain/MongoServer.h"
 #include "robomongo/core/events/MongoEvents.h"
 
-#include "robomongo/shell/db/ptimeutil.h"
+#include <QDateTime>
 
 #include "robomongo/gui/MainWindow.h"
+#include "robomongo/gui/widgets/workarea/OutputItemContentWidget.h"
 #include "robomongo/gui/widgets/workarea/BsonTreeItem.h"
 #include "robomongo/gui/dialogs/DocumentTextEditor.h"
 #include "robomongo/gui/utils/DialogUtils.h"
@@ -142,8 +140,7 @@ namespace Robomongo
 
     void Notifier::initMenu(QMenu *const menu, BsonTreeItem *const item)
     {
-        bool const isProjection = !_queryInfo._fields.isEmpty();
-        bool const isEditable = _queryInfo._info.isValid() && !isProjection;
+        bool const isEditable = this->isEditable();
         bool const onItem = item ? true : false;
         
         bool isSimple = false;
@@ -180,7 +177,7 @@ namespace Robomongo
 
     void Notifier::initMultiSelectionMenu(QMenu *const menu)
     {
-        bool isEditable = _queryInfo._info.isValid();
+        bool const isEditable = this->isEditable();
 
         if (isEditable) menu->addAction(_insertDocumentAction);
         if (isEditable) menu->addAction(_deleteDocumentsAction);
@@ -188,7 +185,8 @@ namespace Robomongo
 
     void Notifier::deleteDocuments(std::vector<BsonTreeItem*> const& items, bool force)
     {
-        bool isNeededRefresh = false;
+        if (!isEditable())
+            return;
 
         int index = 0;
         for (auto const * const documentItem : items) {
@@ -219,20 +217,20 @@ namespace Robomongo
                     break;
             }
 
-            isNeededRefresh = true;
-
             RemoveDocumentCount removeCount = items.size() == 1 ? RemoveDocumentCount::ONE :  
                                                                   RemoveDocumentCount::MULTI;
             _shell->server()->removeDocuments(query, _queryInfo._info._ns, removeCount, index);
             ++index;
-            mainWindow()->showQueryWidgetProgressBar();
+            if (auto *window = mainWindow())
+                window->showQueryWidgetProgressBar();
         }
     }
 
     void Notifier::handle(InsertDocumentResponse *event)
     {
         if (event->isError()) { // Error
-            mainWindow()->hideQueryWidgetProgressBar();        
+            if (auto *window = mainWindow())
+                window->hideQueryWidgetProgressBar();
             if (_shell->server()->connectionRecord()->isReplicaSet()) {
                 // Insert document from tab results window (Notifier, OutputWindow widget)
                 if (EventError::SetPrimaryUnreachable == event->error().errorCode()) {
@@ -246,21 +244,36 @@ namespace Robomongo
             return;
         }
 
-        // Success
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        _shell->query(0, _queryInfo);
+        refreshAfterWrite();
     }
 
     void Notifier::handle(RemoveDocumentResponse *event)
     {
-       if (event->isError()) {
+        if (event->isError()) {
+            if (auto *window = mainWindow())
+                window->hideQueryWidgetProgressBar();
             if (!(event->removeCount == RemoveDocumentCount::MULTI && event->index > 0))
-                QMessageBox::warning(NULL, "Database Error", QString::fromStdString(event->error().errorMessage()));
-       }
-       else {   // Success
-           std::this_thread::sleep_for(std::chrono::milliseconds(100));
-           _shell->query(0, _queryInfo);
-       }
+                QMessageBox::warning(nullptr, "Database Error", QString::fromStdString(event->error().errorMessage()));
+            return;
+        }
+        refreshAfterWrite();
+    }
+
+    bool Notifier::isEditable() const
+    {
+        return _queryInfo._info.isValid() && !_queryInfo.readOnly && _queryInfo._fields.isEmpty();
+    }
+
+    void Notifier::refreshAfterWrite()
+    {
+        if (!isEditable())
+            return;
+        for (auto *widget = dynamic_cast<QWidget*>(_observer); widget; widget = widget->parentWidget()) {
+            if (auto *result = qobject_cast<OutputItemContentWidget*>(widget)) {
+                result->refreshAfterWrite();
+                return;
+            }
+        }
     }
 
     void Notifier::onCopyNameDocument()
@@ -312,7 +325,7 @@ namespace Robomongo
 
     MainWindow* Notifier::mainWindow() const
     {
-        MainWindow* mainWindow;
+        MainWindow* mainWindow = nullptr;
         for (auto wid : QApplication::topLevelWidgets()) {
             if ((mainWindow = qobject_cast<MainWindow*>(wid)))
                 break;
@@ -322,6 +335,8 @@ namespace Robomongo
 
     void Notifier::handleDeleteCommand()
     {
+        if (!isEditable())
+            return;
         if (_observer->selectedIndexes().count() > 1) 
             onDeleteDocuments();
         else 
@@ -330,7 +345,7 @@ namespace Robomongo
 
     void Notifier::onDeleteDocuments()
     {
-        if (!_queryInfo._info.isValid())
+        if (!isEditable())
             return;
 
         QModelIndexList selectedIndexes = _observer->selectedIndexes();
@@ -352,7 +367,7 @@ namespace Robomongo
 
     void Notifier::onDeleteDocument()
     {
-        if (!_queryInfo._info.isValid())
+        if (!isEditable())
             return;
 
         QModelIndex selectedIndex = _observer->selectedIndex();
@@ -367,7 +382,7 @@ namespace Robomongo
 
     void Notifier::onEditDocument()
     {
-        if (!_queryInfo._info.isValid())
+        if (!isEditable())
             return;
 
         QModelIndex selectedInd = _observer->selectedIndex();
@@ -378,20 +393,15 @@ namespace Robomongo
         if (!documentItem)
             return;
 
-        std::string str = BsonUtils::jsonString(documentItem->superRoot(), mongo::TenGen, 1,
-                                                AppRegistry::instance().settingsManager()->uuidEncoding(),
-                                                AppRegistry::instance().settingsManager()->timeZone());
-
-        const QString &json = QtUtils::toQString(str);
-
-        DocumentTextEditor editor(_queryInfo._info, json, false, dynamic_cast<QWidget*>(_observer));
+        DocumentTextEditor editor(_queryInfo._info, documentItem->superRoot(), false, dynamic_cast<QWidget*>(_observer));
 
         editor.setWindowTitle("Edit Document");
         int result = editor.exec();
 
         if (result == QDialog::Accepted) {
             _shell->server()->saveDocuments(editor.bsonObj(), _queryInfo._info._ns);
-            mainWindow()->showQueryWidgetProgressBar();
+            if (auto *window = mainWindow())
+                window->showQueryWidgetProgressBar();
         }
     }
 
@@ -405,16 +415,8 @@ namespace Robomongo
         if (!documentItem)
             return;
 
-        mongo::BSONObj obj = documentItem->superRoot();
-
-        std::string str = BsonUtils::jsonString(obj, mongo::TenGen, 1,
-            AppRegistry::instance().settingsManager()->uuidEncoding(),
-            AppRegistry::instance().settingsManager()->timeZone());
-
-        const QString &json = QtUtils::toQString(str);
-
         DocumentTextEditor *editor = new DocumentTextEditor(_queryInfo._info,
-            json, true, dynamic_cast<QWidget*>(_observer));
+            documentItem->superRoot(), true, dynamic_cast<QWidget*>(_observer));
 
         editor->setWindowTitle("View Document");
         editor->show();
@@ -422,7 +424,7 @@ namespace Robomongo
 
     void Notifier::onInsertDocument()
     {
-        if (!_queryInfo._info.isValid())
+        if (!isEditable())
             return;
 
         DocumentTextEditor editor(_queryInfo._info,
@@ -438,7 +440,8 @@ namespace Robomongo
         DocumentTextEditor::ReturnType obj = editor.bsonObj();
         for (DocumentTextEditor::ReturnType::const_iterator it = obj.begin(); it != obj.end(); ++it) {
             _shell->server()->insertDocument(*it, _queryInfo._info._ns);
-            mainWindow()->showQueryWidgetProgressBar();
+            if (auto *window = mainWindow())
+                window->showQueryWidgetProgressBar();
         }
     }
 
@@ -479,20 +482,10 @@ namespace Robomongo
         bool ok;
         long long milliTimestamp = (long long)hexTimestamp.toLongLong(&ok, 16)*1000;
 
-        bool isSupportedDate = (miutil::minDate < milliTimestamp) && (milliTimestamp < miutil::maxDate);
-
-        boost::posix_time::ptime epoch(boost::gregorian::date(1970, 1, 1));
-        boost::posix_time::time_duration diff = boost::posix_time::millisec(milliTimestamp);
-        boost::posix_time::ptime time = epoch + diff;
-
-        if (isSupportedDate)
-        {
-            std::string date = miutil::isotimeString(time, false, false);
-            clipboard->setText("ISODate(\""+QString::fromStdString(date)+"\")");
-        }
-        else {
-            clipboard->setText("Error extracting ISODate()");
-        }
+        const auto date = QDateTime::fromMSecsSinceEpoch(milliTimestamp, QTimeZone::UTC);
+        clipboard->setText(ok && date.isValid()
+            ? "ISODate(\"" + date.toString(Qt::ISODateWithMs) + "\")"
+            : "Error extracting ISODate()");
     }
 
      void Notifier::onCopyJson()

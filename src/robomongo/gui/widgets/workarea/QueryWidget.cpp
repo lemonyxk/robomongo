@@ -1,5 +1,6 @@
 #include "robomongo/gui/widgets/workarea/QueryWidget.h"
 
+#include <QRegularExpression>
 #include <QObject>
 #include <QPushButton>
 #include <QApplication>
@@ -11,7 +12,7 @@
 #include <QDockWidget>
 #include <Qsci/qsciscintilla.h>
 #include <Qsci/qscilexerjavascript.h>
-#include <mongo/client/dbclient_base.h>
+#include "robomongo/core/mongodb/MongoConnection.h"
 
 #include "robomongo/core/AppRegistry.h"
 #include "robomongo/core/EventBus.h"
@@ -37,6 +38,27 @@
 #include "robomongo/gui/dialogs/ChangeShellTimeoutDialog.h"
 
 using namespace mongo;
+
+namespace
+{
+    QString queryTabTitle(const QString &query)
+    {
+        // Keep the collection visible instead of repeating "db.getCollection"
+        // across every tab. Unrecognized scripts retain their text preview.
+        static const QRegularExpression collectionCall(QStringLiteral(
+            R"rx(^\s*db\s*\.\s*getCollection\s*\(\s*(['"])([^'"\\\r\n]+)\1\s*\)\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\()rx"));
+        static const QRegularExpression propertyCall(QStringLiteral(
+            R"rx(^\s*db\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\()rx"));
+        const QString prefix = query.left(700);
+        const auto collection = collectionCall.match(prefix);
+        if (collection.hasMatch())
+            return collection.captured(2) + QStringLiteral(" · ") + collection.captured(3);
+        const auto property = propertyCall.match(prefix);
+        if (property.hasMatch())
+            return property.captured(1) + QStringLiteral(" · ") + property.captured(2);
+        return query.left(41).simplified();
+    }
+}
 
 namespace Robomongo
 {
@@ -187,6 +209,8 @@ namespace Robomongo
 
     void QueryWidget::textChange()
     {
+        if (_isTextChanged)
+            return;
         _isTextChanged = true;
         updateCurrentTab();
     }
@@ -377,12 +401,13 @@ namespace Robomongo
         else {
 
             if (tabTitle.isEmpty()) {
-                tabTitle = shellQuery.left(41).replace(QRegExp("[\n\r\t]"), " ");
-                toolTipText = QString("<pre>%1</pre>").arg(toolTipQuery);
+                tabTitle = queryTabTitle(shellQuery);
+                toolTipText = QString("<pre>%1</pre>").arg(toolTipQuery.toHtmlEscaped());
             }
             else {
                 //tabTitle = QString("%1 %2").arg(tabTitle).arg(shellQuery);
-                toolTipText = QString("<b>%1</b><br/><pre>%2</pre>").arg(toolTipText).arg(toolTipQuery);
+                toolTipText = QString("<b>%1</b><br/><pre>%2</pre>")
+                    .arg(toolTipText.toHtmlEscaped(), toolTipQuery.toHtmlEscaped());
             }
         }
 

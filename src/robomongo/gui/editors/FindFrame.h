@@ -41,6 +41,7 @@ namespace Robomongo
 
     private:
         void findElement(bool forward);
+        bool lineHasComment(int lineIndex) const;
         void setLineComment(const int lineIndex, const bool commentOut);
         RoboScintilla *const _scin;
         QFrame *const _findPanel;
@@ -54,4 +55,3 @@ namespace Robomongo
         QWidget *_parent;
     };
 }
-

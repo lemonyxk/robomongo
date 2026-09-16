@@ -15,15 +15,13 @@ namespace Robomongo
     class ConnectionSettings;
     struct ConfigFileAndImportFunction;
         
-    // Current cache directory
-    auto const CacheDir = QString("%1/.3T/robo-3t/%2/cache/").arg(QDir::homePath())
-                                                             .arg(PROJECT_VERSION);
-    // Current config file
-    auto const ConfigFilePath = QString("%1/.3T/robo-3t/%2/robo3t.json").arg(QDir::homePath())
-                                                                        .arg(PROJECT_VERSION);  
-    // Current config file directory
-    auto const ConfigDir = QString("%1/.3T/robo-3t/%2/").arg(QDir::homePath())
-                                                        .arg(PROJECT_VERSION);  
+    // An explicit profile allows isolated tests and portable installations.
+    inline const QString ConfigRoot = qEnvironmentVariableIsSet("ROBOMONGO_PROFILE_DIR")
+        ? qEnvironmentVariable("ROBOMONGO_PROFILE_DIR")
+        : QDir::home().filePath(".3T/robo-3t");
+    inline const QString ConfigDir = QDir(ConfigRoot).filePath(PROJECT_VERSION);
+    inline const QString CacheDir = QDir(ConfigDir).filePath("cache");
+    inline const QString ConfigFilePath = QDir(ConfigDir).filePath("robo3t.json");
 
 /* ----------------------------- SettingsManager ------------------------------ */
 

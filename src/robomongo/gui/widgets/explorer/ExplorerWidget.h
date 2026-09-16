@@ -5,6 +5,9 @@ QT_BEGIN_NAMESPACE
 class QTreeWidget;
 class QTreeWidgetItem;
 class QLabel;
+class QShowEvent;
+class QHideEvent;
+class QResizeEvent;
 QT_END_NAMESPACE
 
 #include "robomongo/core/events/MongoEvents.h"
@@ -36,7 +39,10 @@ namespace Robomongo
         void ui_itemDoubleClicked(QTreeWidgetItem *item, int column);
 
     protected:
-        void keyPressEvent(QKeyEvent *event) override;   
+        void keyPressEvent(QKeyEvent *event) override;
+        void showEvent(QShowEvent *event) override;
+        void hideEvent(QHideEvent *event) override;
+        void resizeEvent(QResizeEvent *event) override;
 
     private:
         QSize sizeHint() const override;

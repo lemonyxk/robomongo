@@ -1,0 +1,24 @@
+{
+  "name": "robomongo-mongosh-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Persistent mongosh runtime for Robo 3T",
+  "license": "GPL-3.0",
+  "engines": { "node": ">=26.8.2" },
+  "allowScripts": {
+    "cpu-features@0.0.10": true,
+    "kerberos@7.0.0": true,
+    "macos-export-certificate-and-key@2.0.1": true,
+    "mongodb-client-encryption@7.2.1": true,
+    "os-dns-native@2.0.1": true,
+    "ssh2@1.17.0": true
+  },
+  "dependencies": {
+    "@mongosh/autocomplete": "5.7.0",
+    "@mongosh/service-provider-node-driver": "5.4.0",
+    "@mongosh/shell-api": "5.7.0",
+    "@mongosh/shell-evaluator": "5.7.0",
+    "@babel/parser": "8.0.5",
+    "bson": "7.3.3"
+  }
+}

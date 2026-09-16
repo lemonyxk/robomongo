@@ -4,6 +4,7 @@
 #include "robomongo/gui/widgets/explorer/ExplorerDatabaseTreeItem.h"
 #include "robomongo/gui/widgets/explorer/ExplorerReplicaSetTreeItem.h"
 #include <QContextMenuEvent>
+#include <QHeaderView>
 #include <robomongo/gui/GuiRegistry.h>
 
 namespace Robomongo
@@ -12,14 +13,17 @@ namespace Robomongo
     {
     #if defined(Q_OS_MAC)
         setAttribute(Qt::WA_MacShowFocusRect, false);
-        QPalette palet = palette();
-        palet.setColor(QPalette::Active, QPalette::Highlight, QColor(16, 108, 214));
-        setPalette(palet);
     #endif
         setContextMenuPolicy(Qt::DefaultContextMenu);
         setObjectName("explorerTree");
-        setIndentation(15);
+        setIndentation(18);
+        setUniformRowHeights(true);
+        setAnimated(false);
+        setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+        setTextElideMode(Qt::ElideMiddle);
         setHeaderHidden(true);
+        header()->setSectionResizeMode(QHeaderView::Stretch);
         setSelectionMode(QAbstractItemView::SingleSelection);
         setExpandsOnDoubleClick(false);
     }

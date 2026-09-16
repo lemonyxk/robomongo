@@ -1,5 +1,5 @@
 #pragma once
-#include <boost/scoped_ptr.hpp>
+#include <memory>
 #include "robomongo/core/Event.h"
 
 namespace Robomongo
@@ -13,7 +13,7 @@ namespace Robomongo
         const QList<QObject *> &receivers() const;
 
     private:
-        const boost::scoped_ptr<Event> _event;
+        const std::unique_ptr<Event> _event;
         const QList<QObject *> _receivers;
     };
 }

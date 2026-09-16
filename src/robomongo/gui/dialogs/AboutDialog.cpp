@@ -37,14 +37,13 @@ namespace
         "<br>"
 
         "<b>Dependencies: <br></b>"
-        "Mongo-Shell " MongoDB_VERSION "<br>"
+        "MongoDB Shell " MONGOSH_VERSION "<br>"
+        "MongoDB C Driver " ROBO_MONGOC_VERSION "<br>"
+        "Node.js " NODE_VERSION "<br>"
         "Qt " PROJECT_QT_VERSION "<br>"
         "OpenSSL " 	   OPENSSL_VERSION "<br>"
         "libssh2 " 	   LIBSSH2_VERSION "<br>"
-        "QJson "   	   QJSON_VERSION "<br>"
         "QScintilla "  QSCINTILLA_VERSION_STR "<br>"
-        "Google Test " GOOGLE_TEST_VERSION "<br>"
-        "ESPRIMA "      ESPRIMA_VERSION "<br>"
         "<br>"
 
         "<b>Credits: <br/></b>"

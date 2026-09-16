@@ -107,6 +107,6 @@ namespace Robomongo
         _queryText->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         _queryText->sciScintilla()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-        _queryText->sciScintilla()->setStyleSheet("QFrame { background-color: rgb(73, 76, 78); border: 1px solid #c7c5c4; border-radius: 4px; margin: 0px; padding: 0px;}");
+        _queryText->sciScintilla()->setStyleSheet("QFrame { background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
     }
 }

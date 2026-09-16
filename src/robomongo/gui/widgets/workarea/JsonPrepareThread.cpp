@@ -1,6 +1,6 @@
 #include "robomongo/gui/widgets/workarea/JsonPrepareThread.h"
 
-#include <QHBoxLayout>
+#include <QElapsedTimer>
 
 #include "robomongo/core/domain/MongoDocument.h"
 #include "robomongo/core/utils/BsonUtils.h"
@@ -23,32 +23,41 @@ namespace Robomongo
 
     void JsonPrepareThread::run()
     {
+        constexpr std::size_t chunkBytes = 64 * 1024;
+        std::string chunk;
+        chunk.reserve(chunkBytes);
+        QElapsedTimer lastDelivery;
+        lastDelivery.start();
         int position = 1; // 1-based numbering to match tree & table views
         for (std::vector<MongoDocumentPtr>::const_iterator it = _bsonObjects.begin(); it != _bsonObjects.end(); ++it)
         {
-            MongoDocumentPtr doc = *it;
-            mongo::StringBuilder sb;
+            if (_stop)
+                break;
+            const MongoDocumentPtr &doc = *it;
             if (position == 1)
-                sb << "/* 1 */\n";
+                chunk.append("/* 1 */\n");
             else
-                sb << "\n\n/* " << position << " */\n";
+                chunk.append("\n\n/* " + std::to_string(position) + " */\n");
 
-            mongo::BSONObj obj = doc->bsonObj();
-            std::string stdJson = BsonUtils::jsonString(obj, mongo::TenGen, 1, _uuidEncoding, _timeZone);
-
-            if (_stop)
-                break;
-
-            sb << stdJson;
-            QString json = QtUtils::toQString(sb.str());
+            chunk.append(BsonUtils::jsonString(doc->bsonObj(), mongo::TenGen, 1,
+                                              _uuidEncoding, _timeZone, false, true));
 
             if (_stop)
                 break;
 
-            emit partReady(json);
+            // Show the first document immediately, then amortize queued UI
+            // signals, UTF-8 conversions, editor appends and syntax updates.
+            if (position == 1 || chunk.size() >= chunkBytes || lastDelivery.elapsed() >= 32) {
+                emit partReady(QtUtils::toQString(chunk));
+                chunk.clear();
+                lastDelivery.restart();
+            }
 
             position++;
         }
+
+        if (!_stop && !chunk.empty())
+            emit partReady(QtUtils::toQString(chunk));
 
         emit done();
     }

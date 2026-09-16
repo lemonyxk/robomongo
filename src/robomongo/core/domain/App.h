@@ -93,10 +93,12 @@ namespace Robomongo
         void handle(LogEvent *event);
 
     private:
-        std::unique_ptr<MongoServer> openServerInternal(ConnectionSettings* connSettings, ConnectionType type);
+        std::unique_ptr<MongoServer> openServerInternal(ConnectionSettings* connSettings, ConnectionType type,
+                                                       const ConnectionInfo *knownInfo = nullptr);
         
         std::unique_ptr<MongoServer> 
-        continueOpenServer(int serverHandle, ConnectionSettings* connSettings, ConnectionType type, int localport = 0);
+        continueOpenServer(int serverHandle, ConnectionSettings* connSettings, ConnectionType type, int localport = 0,
+                           const ConnectionInfo *knownInfo = nullptr);
 
         /**
         * @brief Create prompt dialog to enter SSL PEM key passphrase and save passphrase into SSL settings

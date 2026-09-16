@@ -4,8 +4,8 @@
 #include <QVariant>
 #include <QVariantMap>
 
-#include <mongo/util/net/hostandport.h>
-#include <mongo/client/mongo_uri.h>
+#include "robomongo/core/mongodb/MongoConnection.h"
+#include "robomongo/core/mongodb/MongoConnection.h"
 
 namespace Robomongo
 {

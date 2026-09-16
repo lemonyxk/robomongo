@@ -56,9 +56,10 @@ namespace Robomongo {
         // is also specified in MongoWorker constructor.
     }
 
-    void MongoServer::tryConnect() 
+    void MongoServer::tryConnect(const ConnectionInfo *knownInfo)
     {
-        _bus->send(_worker, new EstablishConnectionRequest(this, _connectionType, _connSettings->uuid().toStdString()));
+        _bus->send(_worker, new EstablishConnectionRequest(this, _connectionType,
+            _connSettings->uuid().toStdString(), knownInfo));
     }
 
     void MongoServer::tryRefresh() 
@@ -177,6 +178,7 @@ namespace Robomongo {
         // --- Connections Successful
         // Save various information after successful connection
         const ConnectionInfo &info = event->info;
+        _connectionInfo = std::make_unique<ConnectionInfo>(info);
         _version = info._version;
         _storageEngineType = info._storageEngineType;
         _isConnected = true;

@@ -1,4 +1,5 @@
 #include "RoboCrypt.h"
+#include "robomongo/core/settings/SettingsManager.h"
 
 #include "robomongo/core/utils/Logger.h"       
 
@@ -24,7 +25,7 @@ namespace Robomongo {
             _roboCryptLogs.push_back({ msg, severity });
         };
 
-        const auto KEY_FILE = QString("%1/.3T/robo-3t/robo3t.key").arg(QDir::homePath()).toStdString();
+        const auto KEY_FILE = QDir(ConfigRoot).filePath("robo3t.key").toStdString();
         QString fileContent;
         QFileInfo const fileInfo{ QString::fromStdString(KEY_FILE) };
         if (fileInfo.exists() && fileInfo.isFile()) {   // a) Read existing key from file

@@ -1,0 +1,30 @@
+# Run after every installed resource, including the JavaScript runtime, is in place.
+# Sign nested code before sealing the outer bundle. Local ad-hoc signatures permit
+# native development use; distribution still requires a Developer ID and notarization.
+set(bundle "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/Robo 3T.app")
+set(codesign /usr/bin/codesign)
+
+function(sign_local path)
+    execute_process(COMMAND "${codesign}" --force --sign - ${ARGN} "${path}"
+        RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(NOT status EQUAL 0)
+        message(FATAL_ERROR "Could not sign ${path}: ${output}${error}")
+    endif()
+endfunction()
+
+file(GLOB_RECURSE plugins "${bundle}/Contents/PlugIns/*.dylib")
+file(GLOB libraries "${bundle}/Contents/Frameworks/*.dylib")
+file(GLOB frameworks "${bundle}/Contents/Frameworks/*.framework")
+file(GLOB_RECURSE addons "${bundle}/Contents/Resources/runtime/node_modules/*.node")
+foreach(code IN LISTS plugins libraries frameworks addons)
+    sign_local("${code}")
+endforeach()
+sign_local("${bundle}/Contents/Resources/runtime/node"
+    --options runtime --entitlements "@CMAKE_SOURCE_DIR@/install/macosx/node-entitlements.plist")
+sign_local("${bundle}")
+execute_process(COMMAND "${codesign}" --verify --deep --strict "${bundle}"
+    RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT status EQUAL 0)
+    message(FATAL_ERROR "Installed app signature verification failed: ${output}${error}")
+endif()
+message(STATUS "Locally signed and verified ${bundle}")

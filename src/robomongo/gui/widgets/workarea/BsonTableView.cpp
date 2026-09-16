@@ -1,6 +1,7 @@
 #include "robomongo/gui/widgets/workarea/BsonTableView.h"
 
 #include <QHeaderView>
+#include <QFontMetrics>
 #include <QAction>
 #include <QMenu>
 #include <QKeyEvent>
@@ -18,10 +19,18 @@ namespace Robomongo
         setAttribute(Qt::WA_MacShowFocusRect, false);
 #endif
         GuiRegistry::instance().setAlternatingColor(this);
+        setWordWrap(false);
+        setTextElideMode(Qt::ElideRight);
+        setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
 
         verticalHeader()->setDefaultAlignment(Qt::AlignLeft);
+        verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+        verticalHeader()->setDefaultSectionSize(qMax(28, fontMetrics().height() + 10));
         horizontalHeader()->setDefaultAlignment(Qt::AlignLeft);
-        setStyleSheet("QTableView { border-left: 1px solid #c7c5c4; border-top: 1px solid #c7c5c4; gridline-color: #edebea;}");
+        horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+        horizontalHeader()->setDefaultSectionSize(180);
+        horizontalHeader()->setMinimumSectionSize(64);
 
         setSelectionMode(QAbstractItemView::ExtendedSelection);
         setSelectionBehavior(QAbstractItemView::SelectItems);

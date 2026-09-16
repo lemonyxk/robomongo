@@ -1,9 +1,10 @@
 ﻿#include "robomongo/gui/dialogs/ConnectionBasicTab.h"
 
+#include <QRegularExpression>
 #include <QLabel>
 #include <QLineEdit>
 #include <QGridLayout>
-#include <QRegExpValidator>
+#include <QRegularExpressionValidator>
 #include <QCheckBox>
 #include <QPushButton>
 #include <QFileDialog>
@@ -13,7 +14,7 @@
 #include <QMessageBox>
 #include <QDialogButtonBox>
 #include <QApplication>
-#include <QDesktopWidget>
+#include <QScreen>
 
 #include "robomongo/core/utils/QtUtils.h"
 #include "robomongo/core/settings/ConnectionSettings.h"
@@ -22,7 +23,7 @@
 #include "robomongo/gui/GuiRegistry.h"
 #include "robomongo/gui/utils/GuiConstants.h"
 
-#include "mongo/client/mongo_uri.h"
+#include "robomongo/core/mongodb/MongoConnection.h"
 
 namespace Robomongo
 {
@@ -48,8 +49,8 @@ namespace Robomongo
         _colon = new QLabel(":");
         _serverPort = new QLineEdit(QString::number(_settings->serverPort()));
         _serverPort->setFixedWidth(80);
-        QRegExp rx("\\d+"); //(0-65554)
-        _serverPort->setValidator(new QRegExpValidator(rx, this)); 
+        QRegularExpression rx("\\d+"); //(0-65554)
+        _serverPort->setValidator(new QRegularExpressionValidator(rx, this));
         _addInfoLabel = new QLabel("Specify host and port of MongoDB server. Host can be either IPv4, IPv6 or domain name.");
         _addInfoLabel->setWordWrap(true);
 
@@ -319,7 +320,7 @@ namespace Robomongo
         if (hostAndPort.size() >= 2) {
             auto const& hostName = hostAndPort[0];
             auto portStr = hostAndPort[1];
-            portStr.remove(QRegExp("[^\\d]"));
+            portStr.remove(QRegularExpression("[^\\d]"));
             str = hostName + ':' + QString::number(portStr.toInt());
         }
         else 

@@ -12,7 +12,7 @@
 #include <QToolTip>
 */
 
-#include <mongo/client/mongo_uri.h>
+#include "robomongo/core/mongodb/MongoConnection.h"
 
 #include "robomongo/core/settings/ConnectionSettings.h"
 #include "robomongo/core/utils/QtUtils.h"

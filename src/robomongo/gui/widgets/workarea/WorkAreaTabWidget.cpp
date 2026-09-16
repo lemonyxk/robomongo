@@ -1,6 +1,7 @@
 #include "robomongo/gui/widgets/workarea/WorkAreaTabWidget.h"
 
 #include <QKeyEvent>
+#include <QPainter>
 #include <QScrollArea>
 
 #include "robomongo/core/AppRegistry.h"
@@ -30,32 +31,14 @@ namespace Robomongo
         setTabsClosable(true);
         setElideMode(Qt::ElideRight);
         setMovable(true);
-        setDocumentMode(true);
-
-#ifdef Q_OS_MAC
         setDocumentMode(false);
-        QFont font = tab->font();
-        font.setPixelSize(12);
-        tab->setFont(font);
-        QString styles = QString(
-            "QTabWidget::pane { background-color: white; }"   // This style disables default styling under Mac
-            "QTabWidget::tab-bar {"
-                "alignment: left;"
-            "}"
-            "QTabBar::tab:selected { "
-                "background: white; /*#E1E1E1*/; "
-                "color: #282828;"
-            "} "
-            "QTabBar::tab {"
-                "color: #505050;"
-                "font-size: 11px;"
-                "background: %1;"
-                "border-right: 1px solid #aaaaaa;"
-                "padding: 4px 5px 7px 5px;"
-            "}"
-        ).arg(QWidget::palette().color(QWidget::backgroundRole()).darker(114).name());
-        setStyleSheet(styles);
-#endif
+
+        setObjectName("workAreaTabs");
+        setStyleSheet(
+            "QTabWidget#workAreaTabs { background: #f4f6f8; }"
+            "QTabWidget#workAreaTabs::pane { border: none; background: white; }"
+            "QTabWidget#workAreaTabs::tab-bar { alignment: left; }"
+        );
 
         VERIFY(connect(this, SIGNAL(tabCloseRequested(int)), SLOT(tabBar_tabCloseRequested(int))));
         VERIFY(connect(this, SIGNAL(currentChanged(int)), SLOT(ui_currentChanged(int))));
@@ -72,14 +55,27 @@ namespace Robomongo
         scrollArea->setBackgroundRole(QPalette::Base);
         scrollArea->setWidgetResizable(true);
 
-        if (!AppRegistry::instance().settingsManager()->disableHttpsFeatures()) {
 #ifdef __APPLE__
-            addTab(scrollArea, QIcon(), "Welcome");
+        addTab(scrollArea, QIcon(), "Welcome");
 #else
-            addTab(scrollArea, GuiRegistry::instance().welcomeTabIcon(), "Welcome");
-#endif        
-        }
+        addTab(scrollArea, GuiRegistry::instance().welcomeTabIcon(), "Welcome");
+#endif
         scrollArea->setFrameShape(QFrame::NoFrame);
+    }
+
+    void WorkAreaTabWidget::paintEvent(QPaintEvent *event)
+    {
+        QTabWidget::paintEvent(event);
+        if (!tabBar()->isVisible())
+            return;
+
+        // QTabBar can be narrower than the window. Paint the full header here;
+        // its child tabs and scroll buttons are drawn over this surface later.
+        const int headerHeight = tabBar()->geometry().bottom() + 1;
+        QPainter painter(this);
+        painter.fillRect(QRect(0, 0, width(), headerHeight), QColor("#f4f6f8"));
+        painter.setPen(QColor("#e2e8ee"));
+        painter.drawLine(0, headerHeight - 1, width(), headerHeight - 1);
     }
 
     void WorkAreaTabWidget::closeTab(int index)
@@ -144,21 +140,14 @@ namespace Robomongo
         if (!scrollArea)
             return;
 
-        _welcomeTab = new WelcomeTab(scrollArea);
-        scrollArea->setWidget(_welcomeTab);
-        scrollArea->setBackgroundRole(QPalette::Base);
-
+        // The welcome page is static: reuse it instead of rebuilding its widget tree.
 #ifdef __APPLE__
         QIcon icon;
 #else
         QIcon const& icon = GuiRegistry::instance().welcomeTabIcon();
 #endif
-        // If welcome tab is closed open it as first tab otherwise refresh on 
-        // it's current place.
-        if (indexOf(scrollArea) == -1)  // Welcome Tab is closed
-            insertTab(0, scrollArea, icon, "Welcome");
-        else 
-            insertTab(indexOf(scrollArea), scrollArea, icon, "Welcome");
+        if (indexOf(scrollArea) == -1)
+            insertTab(0, scrollArea, icon, tr("Welcome"));
 
         scrollArea->setFrameShape(QFrame::NoFrame);
         setCurrentIndex(indexOf(scrollArea));
@@ -206,14 +195,6 @@ namespace Robomongo
         }
 
         QTabWidget::keyPressEvent(keyEvent);
-    }
-
-    void WorkAreaTabWidget::resizeEvent(QResizeEvent* event)
-    {
-        QTabWidget::resizeEvent(event);
-
-        if (_welcomeTab && _welcomeTab->isVisible())
-            _welcomeTab->resize();
     }
 
     void WorkAreaTabWidget::tabBar_tabCloseRequested(int index)
@@ -275,7 +256,9 @@ namespace Robomongo
         if (!send)
             return;
 
-        setTabText(indexOf(send), text);        
+        const int index = indexOf(send);
+        if (index >= 0 && tabText(index) != text)
+            setTabText(index, text);
     }
 
     void WorkAreaTabWidget::tooltipTextChange(const QString &text)
@@ -284,7 +267,9 @@ namespace Robomongo
         if (!send)
             return;
 
-        setTabToolTip(indexOf(send), text);
+        const int index = indexOf(send);
+        if (index >= 0 && tabToolTip(index) != text)
+            setTabToolTip(index, text);
     }
 
     void WorkAreaTabWidget::handle(OpeningShellEvent *event)
@@ -316,4 +301,3 @@ namespace Robomongo
         queryWidget->showProgress();
     }
 }
-

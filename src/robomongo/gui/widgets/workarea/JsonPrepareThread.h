@@ -2,6 +2,7 @@
 
 #include <QThread>
 #include <vector>
+#include <atomic>
 
 #include "robomongo/core/Core.h"
 
@@ -46,6 +47,6 @@ namespace Robomongo
         const std::vector<MongoDocumentPtr> _bsonObjects;
         const UUIDEncoding _uuidEncoding;
         const SupportedTimes _timeZone;
-        volatile bool _stop;
+        std::atomic_bool _stop;
     };
 }

@@ -1,71 +1,68 @@
-cmake_minimum_required(VERSION 3.8.0)
-project(Robomongo)
-
-# Where to look first for CMake modules, before "${CMAKE_ROOT}/Modules" is checked
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
-
-# Project version
-set(PROJECT_VERSION_MAJOR "1")
-set(PROJECT_VERSION_MINOR "4")
-set(PROJECT_VERSION_PATCH "4")
-set(PROJECT_VERSION_BUILD "")
-set(PROJECT_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}${PROJECT_VERSION_BUILD}")
-
-# Enable C++17 features 
+cmake_minimum_required(VERSION 3.22)
+project(Robomongo VERSION 2.0.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Modules
-include(RobomongoPrintUtils)
-include(RobomongoCMakeDefaults)
-include(RobomongoDefaults)
-include(RobomongoCommon)
-include(RobomongoTrashSymbols)
-include(RobomongoTargetArch)
-include(RobomongoInstallQt)
-include(RobomongoPackage)
-
-# Search for dependencies
-find_package(Threading REQUIRED)    # Wrapper arround CMake "Threads" module
-find_package(Qt5Core REQUIRED)
-find_package(Qt5Gui REQUIRED)
-find_package(Qt5Widgets REQUIRED)
-find_package(Qt5PrintSupport REQUIRED)
-find_package(Qt5Network REQUIRED)
-find_package(Qt5Xml REQUIRED)
-if(NOT SYSTEM_LINUX)
-    find_package(Qt5WebEngineWidgets REQUIRED)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
-find_package(MongoDB REQUIRED)
-find_package(OpenSSL REQUIRED)
-
-if (SYSTEM_MACOSX)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET 10.14)
-    find_package(Qt5MacExtras REQUIRED)
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 13.5 CACHE STRING "Minimum macOS version")
 endif()
 
-# Projects
-set(LIBSSH2_VERSION 1.9.0)
-if(SYSTEM_LINUX)
-    set(LIBSSH2_VERSION 1.7.0)
+# Dependencies are installed locally by scripts/build-macos.sh. Every version is
+# pinned, while custom prefixes remain available for other platforms/CI.
+set(ROBOMONGO_DEPS_ROOT "${CMAKE_SOURCE_DIR}/build/deps" CACHE PATH "Dependency cache")
+set(ROBOMONGO_MODERN_PREFIX "${ROBOMONGO_DEPS_ROOT}/modern/prefix" CACHE PATH "Native dependency prefix")
+list(PREPEND CMAKE_PREFIX_PATH "${ROBOMONGO_MODERN_PREFIX}")
+if(APPLE)
+    list(APPEND CMAKE_PREFIX_PATH "${ROBOMONGO_DEPS_ROOT}/Qt6/6.11.2/macos")
 endif()
-set(LIBSSH2_DIR src/third-party/libssh2-${LIBSSH2_VERSION})
-set(QJSON_VERSION 0.8.1)
-set(QJSON_DIR src/third-party/qjson-${QJSON_VERSION})
-set(QSCINTILLA_VERSION 2.8.4)
-set(QSCINTILLA_DIR src/third-party/qscintilla-${QSCINTILLA_VERSION})
-set(ESPRIMA_VERSION 2.7.3)
-set(ESPRIMA_DIR src/third-party/esprima-${ESPRIMA_VERSION})
-# todo: Use equivalent vars from googletest cmake files. Currently they are somehow not working.
-set(GOOGLE_TEST_VERSION 1.8.1)
-set(GOOGLE_TEST_DIR src/third-party/googletest-${GOOGLE_TEST_VERSION})
-add_subdirectory(${LIBSSH2_DIR})
+set(OPENSSL_ROOT_DIR "${ROBOMONGO_MODERN_PREFIX}")
+set(OPENSSL_USE_STATIC_LIBS TRUE)
+find_package(Threads REQUIRED)
+find_package(OpenSSL 4.0.2 REQUIRED)
+find_package(Qt6 6.11.2 REQUIRED COMPONENTS Core Gui Widgets PrintSupport Network Xml Svg)
+find_package(bson 2.5.3 EXACT CONFIG REQUIRED)
+find_package(mongoc 2.5.3 EXACT CONFIG REQUIRED)
+find_package(Libssh2 1.11.1 CONFIG QUIET)
+if(NOT TARGET libssh2::libssh2_static)
+    find_package(libssh2 1.11.1 CONFIG REQUIRED)
+endif()
+set(QSCINTILLA_INCLUDE_DIR "${ROBOMONGO_DEPS_ROOT}/QScintilla_src-2.14.1/src" CACHE PATH "QScintilla headers")
+set(QSCINTILLA_LIBRARY "${ROBOMONGO_DEPS_ROOT}/qscintilla-arm64/libqscintilla2_qt6.a" CACHE FILEPATH "QScintilla Qt 6 library")
+add_library(qscintilla STATIC IMPORTED)
+set_target_properties(qscintilla PROPERTIES IMPORTED_LOCATION "${QSCINTILLA_LIBRARY}" INTERFACE_INCLUDE_DIRECTORIES "${QSCINTILLA_INCLUDE_DIR}" INTERFACE_LINK_LIBRARIES "Qt6::Widgets;Qt6::PrintSupport")
+set(ROBOMONGO_NODE_EXECUTABLE "${ROBOMONGO_DEPS_ROOT}/modern/node-v26.8.2-darwin-arm64/bin/node" CACHE FILEPATH "Node runtime")
+set(ROBOMONGO_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/src/robomongo/runtime" CACHE PATH "mongosh bridge source")
+set(ROBOMONGO_NODE_MODULES "${ROBOMONGO_DEPS_ROOT}/mongosh-runtime/node_modules" CACHE PATH "Installed mongosh packages")
+if(NOT EXISTS "${ROBOMONGO_NODE_EXECUTABLE}" OR NOT EXISTS "${ROBOMONGO_NODE_MODULES}/@mongosh/shell-api/package.json")
+    message(FATAL_ERROR "Modern JavaScript runtime missing. Run scripts/build-macos.sh first.")
+endif()
+add_library(robo_dependencies INTERFACE)
+target_link_libraries(robo_dependencies INTERFACE Qt6::Widgets Qt6::PrintSupport Qt6::Network Qt6::Xml Qt6::Svg qscintilla mongoc::static OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_include_directories(robo_dependencies INTERFACE "${CMAKE_SOURCE_DIR}/src")
+target_compile_definitions(robo_dependencies INTERFACE
+    BUILDING_ROBO "PROJECT_NAME=\"Robo 3T\"" "PROJECT_NAME_TITLE=\"Robo 3T\""
+    "PROJECT_COPYRIGHT=\"Copyright (C) 2014-2026 Robo 3T contributors\""
+    "PROJECT_DOMAIN=\"www.robomongo.org\"" "PROJECT_COMPANYNAME=\"3T Software Labs Ltd\""
+    "PROJECT_COMPANYNAME_DOMAIN=\"https://studio3t.com/\""
+    "PROJECT_GITHUB_FORK=\"www.github.com/Studio3T/robomongo\""
+    "PROJECT_GITHUB_ISSUES=\"www.github.com/Studio3T/robomongo/issues\""
+    "PROJECT_VERSION=\"${PROJECT_VERSION}\"" "PROJECT_VERSION_SHORT=\"2.0\""
+    "BUILD_NUMBER=\"modern\"" "PROJECT_NAME_LOWERCASE=\"robo3t\""
+    "PROJECT_QT_VERSION=\"${Qt6_VERSION}\"" "MongoDB_VERSION=\"mongosh 2.11.1\""
+    "MONGOSH_VERSION=\"2.11.1\"" "ROBO_MONGOC_VERSION=\"2.5.3\"" "NODE_VERSION=\"26.8.2\""
+    "OPENSSL_VERSION=\"4.0.2\"" LIBSSH2_VERSION="1.11.1" "QSCINTILLA_VERSION=\"2.14.1\""
+    "ROBOMONGO_NODE_EXECUTABLE=\"${ROBOMONGO_NODE_EXECUTABLE}\""
+    "ROBOMONGO_RUNTIME_DIR=\"${ROBOMONGO_RUNTIME_DIR}\"")
 add_subdirectory(src/robomongo/ssh)
-add_subdirectory(${QJSON_DIR})
-add_subdirectory(${QSCINTILLA_DIR})
-add_subdirectory(${GOOGLE_TEST_DIR})
 add_subdirectory(src/robomongo)
-add_subdirectory(src/robomongo-unit-tests)
-
-# Show configuration summary
-include(RobomongoConfigurationSummary)
+include(CTest)
+if(BUILD_TESTING)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${ROBOMONGO_DEPS_ROOT}/modern/googletest-1.18.0" "${CMAKE_BINARY_DIR}/googletest" EXCLUDE_FROM_ALL)
+    add_subdirectory(src/robomongo-unit-tests)
+endif()

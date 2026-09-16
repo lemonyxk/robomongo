@@ -1,7 +1,8 @@
 #include "robomongo/core/HexUtils.h"
 
-#include <mongo/util/hex.h>
-#include <pcrecpp.h>
+#include <QByteArray>
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 
 namespace Robomongo
@@ -12,7 +13,7 @@ namespace Robomongo
         {
             std::size_t i;
             for (i = 0; i < str.size(); i++) {
-                if (!isxdigit(str[i])) {
+                if (!std::isxdigit(static_cast<unsigned char>(str[i]))) {
                     return false;
                 }
             }
@@ -22,14 +23,14 @@ namespace Robomongo
         std::string toStdHexLower(const char *raw, int len)
         {
             const void* in = reinterpret_cast<const void*>(raw);
-            std::string stdstr = mongo::toHexLower(in, len);
+            std::string stdstr = QByteArray(static_cast<const char *>(in), len).toHex().toStdString();
             return stdstr;
         }
 
         const char *fromHex(const std::string &s, int *outBytes)
         {
             const int size = s.size();
-            if (size % 2 != 0)
+            if (size % 2 != 0 || !isHexString(s))
                 return NULL;
 
             const int bytes = size / 2; // number of bytes
@@ -37,7 +38,9 @@ namespace Robomongo
 
             const char *p = s.c_str();
             for (size_t i = 0; i < bytes; i++) {
-                data[i] = mongo::fromHex(p).getValue();
+                auto decoded = QByteArray::fromHex(QByteArray(p, 2));
+                if (decoded.size() != 1) { delete[] data; return nullptr; }
+                data[i] = decoded.at(0);
                 p += 2;
             }
 
@@ -104,8 +107,7 @@ namespace Robomongo
         {
             // remove extra characters
             std::string hex = uuid;
-            pcrecpp::RE re("[{}-]");
-            re.GlobalReplace("", &hex);
+            hex.erase(std::remove_if(hex.begin(), hex.end(), [](char c) { return c == '{' || c == '}' || c == '-'; }), hex.end());
 
             if (hex.size() != 32)
                 return "";
@@ -117,8 +119,7 @@ namespace Robomongo
         {
             // remove extra characters
             std::string hex = uuid;
-            pcrecpp::RE re("[{}-]");
-            re.GlobalReplace("", &hex);
+            hex.erase(std::remove_if(hex.begin(), hex.end(), [](char c) { return c == '{' || c == '}' || c == '-'; }), hex.end());
 
             if (hex.size() != 32)
                 return "";
@@ -135,8 +136,7 @@ namespace Robomongo
         {
             // remove extra characters
             std::string hex = uuid;
-            pcrecpp::RE re("[{}-]");
-            re.GlobalReplace("", &hex);
+            hex.erase(std::remove_if(hex.begin(), hex.end(), [](char c) { return c == '{' || c == '}' || c == '-'; }), hex.end());
 
             if (hex.size() != 32)
                 return "";

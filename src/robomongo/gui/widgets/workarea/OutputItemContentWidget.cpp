@@ -1,6 +1,7 @@
 #include "robomongo/gui/widgets/workarea/OutputItemContentWidget.h"
 
 #include <QVBoxLayout>
+#include <QTimer>
 #include <Qsci/qscilexerjavascript.h>
 
 #include "robomongo/core/AppRegistry.h"
@@ -33,6 +34,7 @@ namespace Robomongo
         _bsonTreeview(NULL),
         _thread(NULL),
         _bsonTable(NULL),
+        _collectionStats(nullptr),
         _isTextModeSupported(true),
         _isTreeModeSupported(false),
         _isTableModeSupported(false),
@@ -66,6 +68,7 @@ namespace Robomongo
         _bsonTreeview(NULL),
         _thread(NULL),
         _bsonTable(NULL),
+        _collectionStats(nullptr),
         _isTextModeSupported(true),
         _isTreeModeSupported(true),
         _isTableModeSupported(true),
@@ -99,8 +102,6 @@ namespace Robomongo
             _header->setCollection(QtUtils::toQString(_queryInfo._info._ns.collectionName()));
             _header->paging()->setBatchSize(_queryInfo._batchSize);
             _header->paging()->setSkip(_queryInfo._skip);
-            if (!_queryInfo._limit)
-                _queryInfo._limit = 50;
         }
         else if (_aggrInfo.isValid) {
             _initialLimit = 0;
@@ -119,8 +120,6 @@ namespace Robomongo
         _stack = new QStackedWidget;
         layout->addWidget(_stack);
         setLayout(layout);
-        configureModel();
-
         VERIFY(connect(_header->paging(), SIGNAL(refreshed(int, int)), this, SLOT(refresh(int, int))));
         VERIFY(connect(_header->paging(), SIGNAL(leftClicked(int, int)), this, SLOT(paging_leftClicked(int, int))));
         VERIFY(connect(_header->paging(), SIGNAL(rightClicked(int, int)), this, SLOT(paging_rightClicked(int, int))));
@@ -186,7 +185,7 @@ namespace Robomongo
         _outputWidget->showProgress();
                 
         _shell->setScriptExecutable(true);
-        if (_aggrInfo.isValid) {
+        if (_aggrInfo.isValid && info.runtimeCursorId.empty()) {
             // Build original pipeline object, and append extra skip and limit for paging
             std::string pipelineModified = "[";
             for (int i = 0; ; i++) {
@@ -194,14 +193,15 @@ namespace Robomongo
                 if (obj.empty() || "{}" == obj)
                     break;
 
-                pipelineModified.append(obj + ",");
+                pipelineModified.append("EJSON.parse(" + mongo::quoteJson(obj) + "),");
             }
             pipelineModified.append("{$skip:" + std::to_string(skip) + "}, " +
                                     "{$limit:" + std::to_string(batchSize) + "}" + 
                                     "]");
 
-            std::string const query = "db.getCollection('" + _aggrInfo.collectionName + "').aggregate(" +
-                                      pipelineModified + ", " + _aggrInfo.options.toString() + ")";
+            std::string const query = "db.getCollection(" + mongo::quoteJson(_aggrInfo.collectionName) + ").aggregate(" +
+                                      pipelineModified + ", EJSON.parse(" +
+                                      mongo::quoteJson(mongo::tojson(_aggrInfo.options)) + "))";
             
             // Create aggr. info with new skip and batchsize
             AggrInfo const aggrInfo { _aggrInfo.collectionName, skip, batchSize, _aggrInfo.pipeline, 
@@ -216,17 +216,20 @@ namespace Robomongo
     void OutputItemContentWidget::updateWithInfo(const MongoQueryInfo &inf, 
                                                  const std::vector<MongoDocumentPtr> &documents)
     {
+        _queryInfo = inf;
         update(documents, inf._skip, inf._batchSize);
     }
 
     void OutputItemContentWidget::updateWithInfo(const AggrInfo &aggrInfo, 
                                                  const std::vector<MongoDocumentPtr> &documents)
     {
+        _aggrInfo = aggrInfo;
         update(documents, aggrInfo.skip, aggrInfo.batchSize);
     }
 
     void OutputItemContentWidget::update(const std::vector<MongoDocumentPtr> &documents, int skip, int batchSize)
     {
+        stopJsonPreparation();
         _documents = documents;
 
         _header->paging()->setSkip(skip);
@@ -253,7 +256,13 @@ namespace Robomongo
             delete _textView;
             _textView = NULL;
         }
-        configureModel();
+        if (_collectionStats) {
+            _stack->removeWidget(_collectionStats);
+            delete _collectionStats;
+            _collectionStats = nullptr;
+        }
+        delete _mod;
+        _mod = nullptr;
     }
 
     void OutputItemContentWidget::showText()
@@ -273,7 +282,11 @@ namespace Robomongo
                 if (_documents.size() > 0) {
                     _textView->sciScintilla()->setText("Loading...");
                     _thread = new JsonPrepareThread(_documents, AppRegistry::instance().settingsManager()->uuidEncoding(), AppRegistry::instance().settingsManager()->timeZone());
-                    VERIFY(connect(_thread, SIGNAL(partReady(const QString&)), this, SLOT(jsonPartReady(const QString&))));
+                    _thread->setParent(this);
+                    const auto generation = _jsonGeneration;
+                    VERIFY(connect(_thread, &JsonPrepareThread::partReady, this,
+                        [this, generation](const QString &json) { jsonPartReady(json, generation); },
+                        Qt::QueuedConnection));
                     VERIFY(connect(_thread, SIGNAL(finished()), _thread, SLOT(deleteLater())));
                     _thread->start();
                 }
@@ -297,14 +310,21 @@ namespace Robomongo
         }
 
         if (!_isTreeModeInitialized) {
+            configureModel();
             _bsonTreeview = new BsonTreeView(_shell, _queryInfo, this);
             _bsonTreeview->setModel(_mod);
             _stack->addWidget(_bsonTreeview);
 
-            if (true == AppRegistry::instance().settingsManager()->autoExpand())
+            if (true == AppRegistry::instance().settingsManager()->autoExpand()) {
                 // Expanding only one level, because on large
                 // documents it can take much time
-                _bsonTreeview->expand(_mod->index(0, 0, QModelIndex()));
+                const QModelIndex first = _mod->index(0, 0, QModelIndex());
+                // QTreeView may defer its first layout and only remember the
+                // expansion. Materialize this requested level synchronously.
+                if (_mod->canFetchMore(first))
+                    _mod->fetchMore(first);
+                _bsonTreeview->expand(first);
+            }
 
             _isTreeModeInitialized = true;
         }
@@ -349,6 +369,7 @@ namespace Robomongo
         }
 
         if (!_isTableModeInitialized) {
+            configureModel();
             _bsonTable = new BsonTableView(_shell, _queryInfo);
             BsonTableModelProxy *modp = new BsonTableModelProxy(_bsonTable);
             modp->setSourceModel(_mod);
@@ -378,33 +399,73 @@ namespace Robomongo
         _header->toggleOrientation(orientation);
     }
 
-    void OutputItemContentWidget::jsonPartReady(const QString &json)
+    void OutputItemContentWidget::jsonPartReady(const QString &json, quint64 generation)
     {
-        // check that this is our current thread
-        JsonPrepareThread *thread = qobject_cast<JsonPrepareThread *>(sender());
-        if (thread && thread != _thread)
-        {
-            // close previous thread
-            thread->stop();
-            thread->wait();
-        }
+        // A deleted worker's address can be reused while its signals are still
+        // queued. The captured generation identifies the result independently
+        // of worker lifetime, including delivery after finished/deleteLater.
+        if (generation != _jsonGeneration || !_textView)
+            return;
+        if (_isFirstPartRendered)
+            _textView->sciScintilla()->append(json);
         else
-        {
-            if (_textView)
-            {
-                if (_isFirstPartRendered)
-                    _textView->sciScintilla()->append(json);
-                else
-                    _textView->sciScintilla()->setText(json);
-                _isFirstPartRendered = true;
-            }
+            _textView->sciScintilla()->setText(json);
+        _isFirstPartRendered = true;
+    }
+
+    OutputItemContentWidget::~OutputItemContentWidget()
+    {
+        stopJsonPreparation();
+    }
+
+    void OutputItemContentWidget::stopJsonPreparation()
+    {
+        // Invalidate queued callbacks even if the worker already deleted itself.
+        ++_jsonGeneration;
+        if (!_thread)
+            return;
+        JsonPrepareThread *thread = _thread.data();
+        _thread = nullptr;
+        disconnect(thread, nullptr, this, nullptr);
+        thread->stop();
+        if (thread->isRunning()) {
+            // The worker owns its documents and formatting settings. Let it
+            // finish the current document without blocking paging/closing on
+            // the GUI thread; finished() already schedules deleteLater().
+            thread->setParent(nullptr);
+        } else {
+            delete thread;
         }
     }
-    
+
+    void OutputItemContentWidget::refreshAfterWrite()
+    {
+        if (!_queryInfo._info.isValid() || _queryInfo.readOnly || !_queryInfo._fields.isEmpty())
+            return;
+
+        // Invalidate the cached cursor immediately. Tree and table observers can both
+        // receive the same write event; dispatch one refresh for this result.
+        _queryInfo.runtimeCursorId.clear();
+        if (_writeRefreshQueued)
+            return;
+        _writeRefreshQueued = true;
+        QTimer::singleShot(0, this, [this] {
+            _writeRefreshQueued = false;
+            const int index = _outputWidget->resultIndex(this);
+            if (index < 0)
+                return;
+            // Reuse the pager's limit calculation: an original limit of zero is
+            // unlimited, but refreshing one visible page must remain bounded.
+            refresh(_queryInfo._skip, _queryInfo._batchSize);
+        });
+    }
+
     BsonTreeModel *OutputItemContentWidget::configureModel()
     {
-        delete _mod;
-        _mod = new BsonTreeModel(_documents, this);
+        // Text and custom views do not need per-field tree items. Build these
+        // only on demand, and share them when switching between tree and table.
+        if (!_mod)
+            _mod = new BsonTreeModel(_documents, this);
         return _mod;
     }
 
@@ -422,11 +483,11 @@ namespace Robomongo
         _logText->sciScintilla()->setFont(textFont);
         _logText->sciScintilla()->setReadOnly(true);
         _logText->sciScintilla()->setWrapMode((QsciScintilla::WrapMode) QsciScintilla::SC_WRAP_NONE);
-        _logText->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+        _logText->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         _logText->sciScintilla()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         // Wrap mode turned off because it introduces huge performance problems
         // even for medium size documents.    
-        _logText->sciScintilla()->setStyleSheet("QFrame {background-color: rgb(73, 76, 78); border: 1px solid #c7c5c4; border-radius: 0px; margin: 0px; padding: 0px;}");
+        _logText->sciScintilla()->setFrameShape(QFrame::NoFrame);
         return _logText;
     }
 }

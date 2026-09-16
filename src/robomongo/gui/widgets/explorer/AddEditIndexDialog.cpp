@@ -1,5 +1,7 @@
 #include "robomongo/gui/widgets/explorer/AddEditIndexDialog.h"
 
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include <QTabWidget>
 #include <QTabBar>
 #include <QVBoxLayout>
@@ -21,7 +23,7 @@
 #include "robomongo/gui/GuiRegistry.h"
 #include "robomongo/core/domain/MongoCollection.h"
 #include "robomongo/core/utils/QtUtils.h"
-#include <robomongo/shell/bson/json.h>
+#include "robomongo/core/bson/Bson.h"
 
 namespace
 {
@@ -63,7 +65,7 @@ namespace
         findFrame->sciScintilla()->setTabWidth(4);
         findFrame->sciScintilla()->setAppropriateBraceMatching();
         findFrame->sciScintilla()->setFont(textFont);
-        findFrame->sciScintilla()->setStyleSheet("QFrame {background-color: rgb(73, 76, 78); border: 1px solid #c7c5c4; border-radius: 4px; margin: 0px; padding: 0px;}");
+        findFrame->sciScintilla()->setStyleSheet("QFrame {background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
         findFrame->sciScintilla()->setText(text);
         findFrame->setMaximumHeight(120);
         return findFrame;
@@ -170,8 +172,8 @@ namespace Robomongo
         QHBoxLayout *expireLayout = new QHBoxLayout;
         _expireAfterLineEdit = new QLineEdit(advanced);
         _expireAfterLineEdit->setMaximumWidth(150);
-        QRegExp rx("\\d+");
-        _expireAfterLineEdit->setValidator(new QRegExpValidator(rx, this));
+        QRegularExpression rx("\\d+");
+        _expireAfterLineEdit->setValidator(new QRegularExpressionValidator(rx, this));
 
         QLabel *secLabel = new QLabel(tr("seconds"), advanced);
         expireLayout->addWidget(_expireAfterLineEdit);

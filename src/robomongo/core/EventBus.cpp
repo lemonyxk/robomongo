@@ -44,7 +44,7 @@ namespace
 namespace Robomongo
 {
     EventBus::EventBus() : QObject(),
-        _lock(QMutex::Recursive)
+        _lock()
     {
     }
 

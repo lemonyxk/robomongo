@@ -2,10 +2,13 @@
 
 
 #include <QWidget>
-#include <mongo/logger/log_severity.h>
+#include <QColor>
+#include <QQueue>
+#include "robomongo/core/utils/LogSeverity.h"
 QT_BEGIN_NAMESPACE
-class QTextEdit;
+class QPlainTextEdit;
 class QAction;
+class QTimer;
 QT_END_NAMESPACE
 
 namespace Robomongo
@@ -23,9 +26,20 @@ namespace Robomongo
 
     private Q_SLOTS:
         void showContextMenu(const QPoint &pt);
+        void flushMessages();
+        void clearMessages();
 
-    private:        
-        QTextEdit *const _logTextEdit;
+    private:
+        struct PendingMessage
+        {
+            QString timestamp;
+            QString text;
+            QColor color;
+        };
+
+        QPlainTextEdit *const _logTextEdit;
+        QTimer *const _flushTimer;
+        QQueue<PendingMessage> _pendingMessages;
         QAction *_clear;
     };
 

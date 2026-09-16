@@ -5,11 +5,11 @@
 #include <QPushButton>
 #include <QMessageBox>
 #include <QDialogButtonBox>
-#include <QDesktopWidget>
+#include <QScreen>
 #include <QSettings>
 #include <Qsci/qscilexerjavascript.h>
 
-#include <mongo/client/dbclient_base.h>
+#include "robomongo/core/mongodb/MongoConnection.h"
 
 #include "robomongo/gui/editors/JSLexer.h"
 #include "robomongo/gui/editors/FindFrame.h"
@@ -18,19 +18,31 @@
 #include "robomongo/gui/GuiRegistry.h"
 
 #include "robomongo/core/utils/QtUtils.h"
-#include "robomongo/shell/bson/json.h"
+#include "robomongo/core/bson/Bson.h"
+#include "robomongo/core/AppRegistry.h"
+#include "robomongo/core/settings/SettingsManager.h"
+#include "robomongo/core/utils/BsonUtils.h"
 
 
 namespace Robomongo
 {
     const QSize DocumentTextEditor::minimumSize = QSize(800, 400);
 
+    DocumentTextEditor::DocumentTextEditor(const CollectionInfo &info, const mongo::BSONObj &document, bool readonly, QWidget *parent) :
+        DocumentTextEditor(info, QtUtils::toQString(BsonUtils::jsonString(document, mongo::TenGen, 1,
+            AppRegistry::instance().settingsManager()->uuidEncoding(),
+            AppRegistry::instance().settingsManager()->timeZone(), false, true)), readonly, parent)
+    {
+        _originalDocument = document;
+        _hasOriginalDocument = true;
+    }
+
     DocumentTextEditor::DocumentTextEditor(const CollectionInfo &info, const QString &json, bool readonly /* = false */, QWidget *parent) :
         QDialog(parent),
         _info(info),
         _readonly(readonly)
     {
-        QRect screenGeometry = QApplication::desktop()->availableGeometry();
+        QRect screenGeometry = screen()->availableGeometry();
         int horizontalMargin = (int)(screenGeometry.width() * 0.35);
         int verticalMargin = (int)(screenGeometry.height() * 0.20);
         QSize size(screenGeometry.width() - horizontalMargin,
@@ -156,7 +168,10 @@ namespace Robomongo
             _obj.clear();
             while (offset != jsonLen)
             {
-                mongo::BSONObj doc = mongo::Robomongo::fromjson(json+offset, &len);
+                // Bare small integers retain their original Int64 type in Edit Document.
+                mongo::BSONObj doc = _hasOriginalDocument && _obj.empty()
+                    ? mongo::Robomongo::fromjson(json+offset, &len, _originalDocument)
+                    : mongo::Robomongo::fromjson(json+offset, &len);
                 _obj.push_back(doc);
                 offset += len;
             }
@@ -222,7 +237,7 @@ namespace Robomongo
         _queryText->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         _queryText->sciScintilla()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-        _queryText->sciScintilla()->setStyleSheet("QFrame { background-color: rgb(73, 76, 78); border: 1px solid #c7c5c4; border-radius: 4px; margin: 0px; padding: 0px;}");
+        _queryText->sciScintilla()->setStyleSheet("QFrame { background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
     }
 
     void DocumentTextEditor::saveWindowSettings() const

@@ -1,6 +1,7 @@
 #include "robomongo/gui/editors/FindFrame.h"
 
 #include <QVBoxLayout>
+#include <QByteArray>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
@@ -36,6 +37,9 @@ namespace Robomongo
         _close->hide(); // We do not need close button because ESC works
 
         _findLine->setAlignment(Qt::AlignLeft | Qt::AlignAbsolute);
+        _findLine->setPlaceholderText(tr("Find in document"));
+        _findLine->setClearButtonEnabled(true);
+        _findLine->setAccessibleName(tr("Find in document"));
 
         QHBoxLayout *layout = new QHBoxLayout();
         layout->setContentsMargins(2, 0, 6, 0);
@@ -72,11 +76,8 @@ namespace Robomongo
         bool isFocusScin = _scin->isActiveWindow();
         bool isShowFind = _findPanel->isVisible();
         if (Qt::Key_Escape == keyEvent->key() && isFocusScin && isShowFind) {
-            // Hide & Show of Scintilla widget solves problem of UI blinking
-            _scin->hide();
             _findPanel->hide();
             _scin->setFocus();
-            _scin->show();
             return keyEvent->accept();
         } else if (Qt::Key_Return == keyEvent->key() && (keyEvent->modifiers() & Qt::ShiftModifier) && isFocusScin && isShowFind) {
             goToPrevElement();
@@ -134,7 +135,6 @@ namespace Robomongo
     void FindFrame::toggleComments()
     {
         int lineFrom, indexFrom, lineTo, indexTo;
-        QString line;
         ScriptWidget *container;
         bool commentOut, is_textAndCursorNotificationsDisabled;
                 
@@ -145,8 +145,7 @@ namespace Robomongo
             lineTo = lineFrom;
         }
         // Define what action should be done for each selected line        
-        line = _scin->text(lineFrom);
-        if (line.startsWith(_commentSign)) {
+        if (lineHasComment(lineFrom)) {
             // Remove comment sign
             commentOut = false;
         } else {
@@ -161,6 +160,9 @@ namespace Robomongo
             container->setDisableTextAndCursorNotifications(true);
         }
 
+        const bool updatesEnabled = _scin->updatesEnabled();
+        _scin->setUpdatesEnabled(false);
+        _scin->beginUndoAction();
         for (int lineIndex = lineFrom; lineIndex <= lineTo; ++lineIndex) {
             setLineComment(lineIndex, commentOut);
         }
@@ -174,30 +176,46 @@ namespace Robomongo
             if (commentOut) {
                 _scin->setCursorPosition(lineFrom, indexFrom + _commentSignLength);
             } else {
-                _scin->setCursorPosition(lineFrom, indexFrom - _commentSignLength);
+                _scin->setCursorPosition(lineFrom, qMax(0, indexFrom - _commentSignLength));
             }
         } else {
             // Restore original selection
             if (commentOut) {
                 _scin->setSelection(lineFrom, indexFrom + _commentSignLength, lineTo, indexTo + _commentSignLength);
             } else {
-                _scin->setSelection(lineFrom, indexFrom - _commentSignLength, lineTo, indexTo - _commentSignLength);
+                _scin->setSelection(lineFrom, qMax(0, indexFrom - _commentSignLength),
+                                    lineTo, qMax(0, indexTo - _commentSignLength));
             }
         }
+
+        _scin->endUndoAction();
+        _scin->setUpdatesEnabled(updatesEnabled);
         
         if (NULL != container) {
             container->setDisableTextAndCursorNotifications(is_textAndCursorNotificationsDisabled);
         }
     }
     
+    bool FindFrame::lineHasComment(int lineIndex) const
+    {
+        const int start = _scin->SendScintilla(QsciScintilla::SCI_POSITIONFROMLINE, lineIndex);
+        const int end = _scin->SendScintilla(QsciScintilla::SCI_GETLINEENDPOSITION, lineIndex);
+        if (end - start < _commentSignLength)
+            return false;
+
+        // Checking three bytes avoids copying an entire (possibly huge) line.
+        QByteArray prefix(_commentSignLength + 1, '\0');
+        _scin->SendScintilla(QsciScintilla::SCI_GETTEXTRANGE, start,
+                            start + _commentSignLength, prefix.data());
+        return prefix.startsWith(_commentSign);
+    }
+
     void FindFrame::setLineComment(const int lineIndex, const bool commentOut)
     {
-        QString line;
-        line = _scin->text(lineIndex);
         if (commentOut) {
             // Add comment sign
             _scin->insertAt(_commentSign, lineIndex, 0);
-        } else if (line.startsWith(_commentSign)) {
+        } else if (lineHasComment(lineIndex)) {
             // Remove comment sign
             _scin->setSelection(lineIndex, 0, lineIndex, _commentSignLength);
             _scin->removeSelectedText();

@@ -1,23 +1,10 @@
 #include "robomongo/gui/widgets/workarea/BsonTreeItem.h"
-#include <mongo/client/dbclient_base.h>
+#include <QtAlgorithms>
+#include "robomongo/core/utils/BsonUtils.h"
+#include "robomongo/core/utils/QtUtils.h"
 
-using namespace mongo;
 namespace
 {
-    struct removeIfFound
-    {
-        removeIfFound(Robomongo::BsonTreeItem *item) :_whatSearch(item) {}
-        bool operator()(const Robomongo::BsonTreeItem* item) const
-        {
-            if (item == _whatSearch) {
-                delete _whatSearch;
-                return true;
-            }
-            return false;
-        }
-        const Robomongo::BsonTreeItem *const _whatSearch;
-    };
-
     const Robomongo::BsonTreeItem *findSuperRoot(const Robomongo::BsonTreeItem *const item)
     {
         Robomongo::BsonTreeItem *parent = qobject_cast<Robomongo::BsonTreeItem *>(item->parent());
@@ -52,12 +39,18 @@ namespace Robomongo
 
     void BsonTreeItem::clear()
     {
+        qDeleteAll(_items);
         _items.clear();
+        _itemsByKey.clear();
     }
 
     void BsonTreeItem::addChild(BsonTreeItem *item)
     {
+        item->_row = static_cast<int>(_items.size());
         _items.push_back(item);
+        // Keep the first occurrence for BSON documents with duplicate keys.
+        if (!_itemsByKey.contains(item->key()))
+            _itemsByKey.insert(item->key(), item);
     }
 
     BsonTreeItem* BsonTreeItem::child(unsigned pos) const
@@ -77,12 +70,7 @@ namespace Robomongo
 
     BsonTreeItem* BsonTreeItem::childByKey(const QString &val)
     {
-        for (unsigned i = 0; i < _items.size(); ++i) {
-            if (_items[i]->key() == val) {
-                return _items[i];
-            }
-        }
-        return NULL;
+        return _itemsByKey.value(val, nullptr);
     }
 
     const BsonTreeItem *BsonTreeItem::superParent() const
@@ -102,12 +90,21 @@ namespace Robomongo
 
     int BsonTreeItem::indexOf(BsonTreeItem *item) const
     {
-        for (unsigned i = 0; i < _items.size(); ++i) {
-            if (item == _items[i]) {
-                return i;
-            }
-        }
-        return -1;
+        return item && item->_row >= 0 && childSafe(item->_row) == item ? item->_row : -1;
+    }
+
+    mongo::BSONObj BsonTreeItem::childrenDocument() const
+    {
+        return _element.isABSONObj() ? _element.Obj() : _root;
+    }
+
+    void BsonTreeItem::setElement(const mongo::BSONElement &element, UUIDEncoding uuidEncoding, SupportedTimes timeZone)
+    {
+        _element = element;
+        _uuidEncoding = uuidEncoding;
+        _timeZone = timeZone;
+        _valueReady = false;
+        _displayValueReady = false;
     }
 
     QString BsonTreeItem::key() const
@@ -117,7 +114,50 @@ namespace Robomongo
 
     QString BsonTreeItem::value() const
     {
+        if (!_valueReady) {
+            std::string result;
+            BsonUtils::buildJsonString(_element, result, _uuidEncoding, _timeZone);
+            _fields._value = QtUtils::toQString(result);
+            _valueReady = true;
+        }
         return _fields._value;
+    }
+
+    QString BsonTreeItem::displayValue(bool simplify) const
+    {
+        const QString text = value();
+        if (!simplify)
+            return text.left(300);
+        if (!_displayValueReady) {
+            // Stop at the preview boundary instead of simplifying megabytes of
+            // text for every paint or size hint. Full values remain available
+            // to the copy/edit actions through value().
+            _displayValue.clear();
+            _displayValue.reserve(qMin<qsizetype>(text.size(), 300));
+            bool pendingSpace = false;
+            for (const QChar character : text) {
+                if (character.isSpace()) {
+                    pendingSpace = !_displayValue.isEmpty();
+                    continue;
+                }
+                if (pendingSpace) {
+                    _displayValue.append(QLatin1Char(' '));
+                    pendingSpace = false;
+                }
+                if (_displayValue.size() == 300)
+                    break;
+                _displayValue.append(character);
+                if (_displayValue.size() == 300)
+                    break;
+            }
+            _displayValueReady = true;
+        }
+        return _displayValue;
+    }
+
+    QString BsonTreeItem::toolTipValue() const
+    {
+        return value().left(500);
     }
 
     mongo::BSONType BsonTreeItem::type() const
@@ -133,6 +173,8 @@ namespace Robomongo
     void BsonTreeItem::setValue(const QString &value)
     {
         _fields._value = value;
+        _valueReady = true;
+        _displayValueReady = false;
     }
 
     void BsonTreeItem::setType(mongo::BSONType type)
@@ -152,6 +194,17 @@ namespace Robomongo
 
     void BsonTreeItem::removeChild(BsonTreeItem *item)
     {
-        _items.erase(std::remove_if(_items.begin(), _items.end(), removeIfFound(item)), _items.end());
+        const int row = indexOf(item);
+        if (row < 0)
+            return;
+        const QString key = item->key();
+        _items.erase(_items.begin() + row);
+        _itemsByKey.remove(key);
+        for (int i = 0; i < static_cast<int>(_items.size()); ++i) {
+            _items[i]->_row = i;
+            if (_items[i]->key() == key && !_itemsByKey.contains(key))
+                _itemsByKey.insert(key, _items[i]);
+        }
+        delete item;
     }
 }

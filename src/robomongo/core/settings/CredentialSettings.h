@@ -41,9 +41,9 @@ namespace Robomongo
         void setDatabaseName(const std::string &databaseName) { _databaseName = databaseName; }
 
         /**
-         * @brief Authentication mechanism (SCRAM-SHA-1, SCRAM-SHA-256 or MONGODB-CR)
+         * @brief Authentication mechanism (SCRAM-SHA-256 or SCRAM-SHA-1)
          */
-        std::string mechanism() const { return _mechanism.empty() ? "SCRAM-SHA-1" : _mechanism; }
+        std::string mechanism() const { return _mechanism.empty() ? "SCRAM-SHA-256" : _mechanism; }
         void setMechanism(const std::string &mechanism) { _mechanism = mechanism; }
 
         /**
@@ -63,7 +63,7 @@ namespace Robomongo
         std::string _userName;
         std::string _userPassword;  // clear text password (decrypted)
         std::string _databaseName;
-        std::string _mechanism;     // authentication mechanism (SCRAM-SHA-1, SCRAM-SHA-256 or MONGODB-CR)
+        std::string _mechanism;     // authentication mechanism (SCRAM-SHA-256 or SCRAM-SHA-1)
         bool _useManuallyVisibleDbs;
         std::string _manuallyVisibleDbs;
 

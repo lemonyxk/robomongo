@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mongo/util/net/hostandport.h>
+#include "robomongo/core/mongodb/MongoConnection.h"
 #include <vector>
 
 namespace Robomongo

@@ -21,15 +21,7 @@ namespace Robomongo
      */
     void GuiRegistry::setAlternatingColor(QAbstractItemView *view)
     {
-    #if defined(Q_OS_MAC)
         view->setAlternatingRowColors(true);
-
-        QPalette p = view->palette();
-//        p.setColor(QPalette::AlternateBase, QColor(243, 246, 250));
-        p.setColor(QPalette::AlternateBase, QColor(245, 245, 245));
-        p.setColor(QPalette::Active, QPalette::Highlight, QColor(16, 108, 214));
-        view->setPalette(p);
-    #endif
     }
 
     const QIcon &GuiRegistry::serverIcon() const

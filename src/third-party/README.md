@@ -1,10 +1,7 @@
-Third-party dependencies
-========================
-   
-Robomongo automatically compiles and statically links to the following
-libraries:
+# Third-party dependencies
 
-1. QJson 
-2. QScintilla
+Obsolete vendored sources have been removed. Current dependencies are fetched by
+`scripts/bootstrap-macos.sh` using pinned versions and hashes from
+`scripts/dependencies-macos.json` and the mongosh package lockfile.
 
-You do not need to build them separately. 
+The local build cache is `build/deps`. See `THIRD_PARTY_NOTICES.md` for licenses.

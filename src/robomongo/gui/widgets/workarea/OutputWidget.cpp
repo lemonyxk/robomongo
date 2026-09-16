@@ -4,6 +4,7 @@
 #include <QSplitter>
 #include <QWidget>
 #include <QMouseEvent>
+#include <algorithm>
 
 #include "robomongo/core/AppRegistry.h"
 #include "robomongo/core/domain/MongoShell.h"
@@ -17,10 +18,11 @@
 namespace Robomongo
 {
     OutputWidget::OutputWidget(QWidget *parent) :
-        QTabWidget(parent), _splitter(new QSplitter), _tabbedResults(false)
+        QTabWidget(parent), _splitter(new QSplitter), _tabbedResults(false), _prevResultsCount(0)
     {
         _splitter->setOrientation(Qt::Vertical);
-        _splitter->setHandleWidth(1);
+        _splitter->setHandleWidth(4);
+        _splitter->setOpaqueResize(false);
         _splitter->setContentsMargins(0, 0, 0, 0);
 
         QVBoxLayout *layout = new QVBoxLayout();
@@ -29,6 +31,10 @@ namespace Robomongo
         layout->addWidget(_splitter);
         setLayout(layout);
 
+        setObjectName("resultTabs");
+        tabBar()->setObjectName("resultTabBar");
+        tabBar()->setExpanding(false);
+        tabBar()->setUsesScrollButtons(true);
         setTabsClosable(true);
         setElideMode(Qt::ElideRight);
         setMovable(true);
@@ -45,6 +51,8 @@ namespace Robomongo
 
     void OutputWidget::present(MongoShell *shell, const std::vector<MongoShellResult> &results)
     {
+        const bool updatesWereEnabled = updatesEnabled();
+        setUpdatesEnabled(false);
         if (_prevResultsCount > 0)
             clearAllParts();
         
@@ -52,13 +60,14 @@ namespace Robomongo
         bool const multipleResults = (RESULTS_SIZE > 1);
         _tabbedResults = (RESULTS_SIZE > 2);
         _splitter->setHidden(_tabbedResults ? true : false);
-        _outputItemContentWidgets.clear();        
+        _outputItemContentWidgets.clear();
+        _outputItemContentWidgets.reserve(results.size());
 
         while (count() > 0)
             removeTab(count()-1);
 
         for (int i = 0; i < RESULTS_SIZE; ++i) {
-            MongoShellResult shellResult = results[i];
+            const MongoShellResult &shellResult = results[i];
             double secs = shellResult.elapsedMs() / 1000.f;
             ViewMode viewMode = AppRegistry::instance().settingsManager()->viewMode();
             if (_prevViewModes.size()) {
@@ -70,7 +79,8 @@ namespace Robomongo
             bool const lastItem = (RESULTS_SIZE-1 == i);
 
             OutputItemContentWidget* item = nullptr;
-            if (shellResult.documents().size() > 0) {
+            if (!shellResult.documents().empty() || shellResult.queryInfo()._info.isValid() ||
+                !shellResult.queryInfo().runtimeCursorId.empty()) {
                 item = new OutputItemContentWidget(viewMode, shell, QtUtils::toQString(shellResult.type()),
                                                    shellResult.documents(), shellResult.queryInfo(), secs, 
                                                    multipleResults, _tabbedResults, firstItem, lastItem,
@@ -94,20 +104,18 @@ namespace Robomongo
         }
         
         tryToMakeAllPartsEqualInSize();
+        setUpdatesEnabled(updatesWereEnabled);
     }
 
     void OutputWidget::updatePart(int partIndex, const MongoQueryInfo &queryInfo, 
                                   const std::vector<MongoDocumentPtr> &documents)
     {
-        if (!_tabbedResults && partIndex >= _splitter->count())
+        if (partIndex < 0 || partIndex >= static_cast<int>(_outputItemContentWidgets.size()))
+            return;
+        auto *outputItemContentWidget = _outputItemContentWidgets[partIndex];
+        if (!outputItemContentWidget)
             return;
 
-        OutputItemContentWidget* outputItemContentWidget = nullptr;
-        if(_tabbedResults)
-            outputItemContentWidget = qobject_cast<OutputItemContentWidget*>(currentWidget());
-        else
-            outputItemContentWidget = qobject_cast<OutputItemContentWidget*>(_splitter->widget(partIndex));
-        
         outputItemContentWidget->updateWithInfo(queryInfo, documents);
         outputItemContentWidget->refreshOutputItem();
     }
@@ -115,10 +123,12 @@ namespace Robomongo
     void OutputWidget::updatePart(int partIndex, const AggrInfo &agrrInfo, 
                                   const std::vector<MongoDocumentPtr> &documents)
     {
-        if (partIndex >= _splitter->count())
+        if (partIndex < 0 || partIndex >= static_cast<int>(_outputItemContentWidgets.size()))
+            return;
+        auto *outputItemContentWidget = _outputItemContentWidgets[partIndex];
+        if (!outputItemContentWidget)
             return;
 
-        auto outputItemContentWidget = qobject_cast<OutputItemContentWidget*>(_splitter->widget(partIndex));
         outputItemContentWidget->updateWithInfo(agrrInfo, documents);
         outputItemContentWidget->refreshOutputItem();
     }
@@ -142,7 +152,8 @@ namespace Robomongo
     {
         if (_tabbedResults) {
             QWidget* currentTab { widget(currentIndex()) };
-            modeFunc(qobject_cast<OutputItemContentWidget*>(currentTab));
+            if (auto *item = qobject_cast<OutputItemContentWidget*>(currentTab))
+                modeFunc(item);
         }
         else {
             for (int i = 0; i < _splitter->count(); i++) {
@@ -186,7 +197,14 @@ namespace Robomongo
 
     void OutputWidget::tabCloseRequested(int index)
     {
+        auto *item = qobject_cast<OutputItemContentWidget*>(widget(index));
+        if (!item)
+            return;
+        const int result = resultIndex(item);
         removeTab(index);
+        if (result >= 0)
+            _outputItemContentWidgets[result] = nullptr;
+        delete item;
     }
 
     void OutputWidget::restoreSize()
@@ -200,7 +218,9 @@ namespace Robomongo
 
     int OutputWidget::resultIndex(OutputItemContentWidget *result)
     {
-        return _splitter->indexOf(result);
+        const auto found = std::find(_outputItemContentWidgets.begin(), _outputItemContentWidgets.end(), result);
+        return found == _outputItemContentWidgets.end() ? -1 :
+            static_cast<int>(std::distance(_outputItemContentWidgets.begin(), found));
     }
 
     void OutputWidget::showProgress()
@@ -224,7 +244,8 @@ namespace Robomongo
     void OutputWidget::applyDockUndockSettings(bool isDocking) const
     {
         for (auto const& item : _outputItemContentWidgets) {
-            item->applyDockUndockSettings(isDocking);
+            if (item)
+                item->applyDockUndockSettings(isDocking);
         }
     }
 
@@ -235,114 +256,41 @@ namespace Robomongo
 
     void OutputWidget::mouseReleaseEvent(QMouseEvent * event)
     {
-        if (event->button() != Qt::MidButton)
+        if (event->button() != Qt::MiddleButton)
             return;
 
         int const tabIndex = tabBar()->tabAt(event->pos());
-        removeTab(tabIndex);
+        tabCloseRequested(tabIndex);
         QTabWidget::mouseReleaseEvent(event);
     }
 
     void OutputWidget::clearAllParts()
     {
         _prevViewModes.clear();
-        while (_splitter->count() > 0) {
-            OutputItemContentWidget *widget =  (OutputItemContentWidget *)_splitter->widget(_splitter->count()-1);
-            _prevViewModes.push_back(widget->viewMode());
-            widget->hide();
-            delete widget;
+        for (auto it = _outputItemContentWidgets.rbegin(); it != _outputItemContentWidgets.rend(); ++it) {
+            auto *item = *it;
+            _prevViewModes.push_back(item ? item->viewMode() : AppRegistry::instance().settingsManager()->viewMode());
+            delete item;
         }
+        _outputItemContentWidgets.clear();
+        _prevResultsCount = 0;
     }
 
     QString OutputWidget::buildStyleSheet()
     {
-        QColor background = palette().window().color();
-        QColor gradientZero = QColor("#ffffff"); //Qt::white;//.lighter(103);
-        QColor gradientOne = background.lighter(104); //Qt::white;//.lighter(103);
-        QColor gradientTwo = background.lighter(108); //.lighter(103);
-        QColor selectedBorder = background.darker(103);
-
-        QString aga1 = gradientOne.name();
-        QString aga2 = gradientTwo.name();
-        QString aga3 = background.name();
-
-#ifdef __APPLE__      
-        QString styles = QString(
-            "QTabWidget::pane { background-color: white; }"   // This style disables default styling under Mac
-            "QTabWidget::tab-bar {"
-                "alignment: left;"
-                "border-top-left-radius: 2px;"
-                "border-top-right-radius: 2px;"
-            "}"
-            "QTabBar::close-button { "
-                "margin-top: 2px;"              
-                "image: url(:/robomongo/icons/close_2_Mac_16x16.png);"
-                "width: 10px;"
-                "height: 10px;"
-                "}"
-            "QTabBar::close-button:hover { "
-                "image: url(:/robomongo/icons/close_hover_16x16.png);"
-                "width: 15px;"
-                "height: 15px;"
-            "}"
-            "QTabBar::tab:selected { "
-                "background: white; /*#E1E1E1*/; "
-                "color: #282828;"
-            "} "
-            "QTabBar::tab {"
-                "color: #505050;"
-                "font-size: 11px;"
-                "background: %1;"
-                "border-top-left-radius: 2px;"
-                "border-top-right-radius: 2px;"
-                "border-right: 1px solid #aaaaaa;"
-                "padding: 8px 0px 5px 0px;" // top r b l
-            "}"
-        ).arg(QWidget::palette().color(QWidget::backgroundRole()).darker(114).name());
-#else // Wind and Linux
-        QString styles = QString(
-            "QTabBar::close-button { "
-                "image: url(:/robomongo/icons/close_2_16x16.png);"
-                "width: 10px;"
-                "height: 10px;"
-            "}"
-            "QTabBar::close-button:hover { "
-                  "image: url(:/robomongo/icons/close_hover_16x16.png);"
-                  "width: 15px;"
-                  "height: 15px;"
-            "}"
-            "QTabBar::tab {"
-                "background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,"
-                                            "stop: 0 #F0F0F0, stop: 0.4 #DEDEDE,"
-                                            "stop: 0.5 #E6E6E6, stop: 1.0 #E1E1E1);"
-                "border: 1px solid #C4C4C3;"
-                "border-bottom-color: #B8B7B6;" // #C2C7CB same as the pane color
-                "border-top-left-radius: 6px;"
-                "border-top-right-radius: 6px;"
-                "padding: 4px 4px 5px 8px;"
-                "max-width: 200px;"
-                "margin: 0px;"
-                "margin-left: 1px;"
-                "margin-right: -3px;"  // it should be -(tab:first:margin-left + tab:last:margin-left) to fix incorrect text elidement                
-            "}"
-            "QTabBar::tab:selected, QTabBar::tab:hover {"
-                "/* background: qlineargradient(x1: 0, y1: 1, x2: 0, y2: 0,"
-                                "stop: 0 %1, stop: 0.3 %2,"    //#fafafa, #f4f4f4
-                                "stop: 0.6 %3, stop: 1.0 %4); */" //#e7e7e7, #fafafa            
-                "background-color: white;"
-            "}"
-            "QTabBar::tab:selected {"
-                "margin-top: 1px;"
-                "border-color: #9B9B9B;" //
-                "border-bottom-color: %4;" //#fafafa
-            "}"
-            "QTabBar::tab:!selected {"
-                "margin-top: 2px;" // make non-selected tabs look smaller
-            "}"
-        ).arg(gradientZero.name(), gradientOne.name(), gradientTwo.name(), "#ffffff");
-#endif            
-
-        return styles;
+        return QStringLiteral(R"qss(
+QTabWidget#resultTabs::pane { background: white; border: none; }
+QTabWidget#resultTabs::tab-bar { alignment: left; }
+QTabBar#resultTabBar::tab {
+    background: #edf1f6; color: #68788e; padding: 6px 10px;
+    border: none; border-top: 2px solid transparent; border-right: 1px solid #dce3ec;
+    min-width: 72px; max-width: 240px;
+}
+QTabBar#resultTabBar::tab:hover { background: #e5ecf3; color: #243247; }
+QTabBar#resultTabBar::tab:selected { background: white; color: #195c4d; border-top-color: #247c68; }
+QTabBar#resultTabBar::close-button { image: url(:/robomongo/icons/close_2_16x16.png); width: 16px; height: 16px; }
+QTabBar#resultTabBar::close-button:hover { image: url(:/robomongo/icons/close_hover_16x16.png); }
+)qss");
     }
 
     void OutputWidget::tryToMakeAllPartsEqualInSize()

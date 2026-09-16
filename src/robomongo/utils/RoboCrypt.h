@@ -1,8 +1,10 @@
 #include "SimpleCrypt.h"
 
 #include <string>
+#include <utility>
+#include <vector>
 
-#include <mongo/logger/log_severity.h>
+#include "robomongo/core/utils/LogSeverity.h"
 
 namespace Robomongo {
     

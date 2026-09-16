@@ -44,7 +44,7 @@ namespace Robomongo
          * @brief Try to connect to MongoDB single server or replica set.
          * @throws MongoException, if fails
          */
-        void tryConnect();
+        void tryConnect(const ConnectionInfo *knownInfo = nullptr);
 
         /**
         * @brief Try to re-connect to MongoDB server in order to refresh connection view.
@@ -89,6 +89,7 @@ namespace Robomongo
                              int index = 0);
         float version() const{ return _version; }
         const std::string& getStorageEngineType() const { return _storageEngineType; }
+        const ConnectionInfo *connectionInfo() const { return _connectionInfo.get(); }
 
         /**
          * @brief Returns associated connection record
@@ -131,6 +132,7 @@ namespace Robomongo
 
         float _version;
         std::string _storageEngineType;
+        std::unique_ptr<ConnectionInfo> _connectionInfo;
         ConnectionType _connectionType;
         bool _isConnected;
         int _handle;

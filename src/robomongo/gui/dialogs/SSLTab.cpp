@@ -12,8 +12,8 @@
 #include <QFileInfo>
 #include <QMessageBox>
 
-#include <mongo/util/net/ssl_options.h>
-#include <mongo/util/net/ssl_manager.h>
+
+
 
 #include "robomongo/core/utils/QtUtils.h"
 #include "robomongo/core/settings/ConnectionSettings.h"

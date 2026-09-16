@@ -38,9 +38,8 @@ namespace Robomongo
         _databaseNameLabel = new QLabel("Database");
 
         _mechanismComboBox = new QComboBox;
-        _mechanismComboBox->addItem("SCRAM-SHA-1");
         _mechanismComboBox->addItem("SCRAM-SHA-256");
-        _mechanismComboBox->addItem("MONGODB-CR");
+        _mechanismComboBox->addItem("SCRAM-SHA-1");
 
         _manuallyVisibleDbs = new QLineEdit;
         _manuallyVisibleDbs->setPlaceholderText("Comma-separated e.g. products, users");

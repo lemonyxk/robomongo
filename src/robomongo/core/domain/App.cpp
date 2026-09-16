@@ -49,7 +49,7 @@ namespace Robomongo
 
     std::unique_ptr<MongoServer>
     App::continueOpenServer(int serverHandle, ConnectionSettings* connSettings, 
-                            ConnectionType type, int localport)
+                            ConnectionType type, int localport, const ConnectionInfo *knownInfo)
     {
         ConnectionSettings* connSettingsClone = connSettings->clone();
 
@@ -75,7 +75,7 @@ namespace Robomongo
             : QString::fromStdString(connSettings->getFullAddress());
 
         LOG_MSG(QString("Connecting to %1...").arg(serverAddress), mongo::logger::LogSeverity::Info());
-        server->tryConnect();
+        server->tryConnect(knownInfo);
         return server;
     }
 
@@ -85,7 +85,7 @@ namespace Robomongo
     * @param visible: should this server be visible in UI (explorer) or not.
     */
     std::unique_ptr<MongoServer> 
-    App::openServerInternal(ConnectionSettings* connSettings, ConnectionType type) 
+    App::openServerInternal(ConnectionSettings* connSettings, ConnectionType type, const ConnectionInfo *knownInfo)
     {
         ++_lastServerHandle;
 
@@ -97,7 +97,7 @@ namespace Robomongo
         if (type == ConnectionSecondary || !connSettings->sshSettings()->enabled() 
             || connSettings->isReplicaSet() 
         ) {
-            return continueOpenServer(_lastServerHandle, connSettings, type);
+            return continueOpenServer(_lastServerHandle, connSettings, type, 0, knownInfo);
         }
 
         // Open SSH channel and only after that open connection
@@ -211,8 +211,10 @@ namespace Robomongo
 
     void App::openShell(MongoServer* server, ConnectionSettings* connection, const ScriptInfo &scriptInfo)
     {
-        auto serverClone{ openServerInternal(connection, ConnectionSecondary) };
-        if (!serverClone || !server)
+        if (!server)
+            return;
+        auto serverClone{ openServerInternal(connection, ConnectionSecondary, server->connectionInfo()) };
+        if (!serverClone)
             return;
 
         auto shell{ std::make_unique<MongoShell>(serverClone.get(), scriptInfo) };

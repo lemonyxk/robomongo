@@ -1,6 +1,7 @@
 #include "robomongo/gui/editors/PlainJavaScriptEditor.h"
 
 #include <QPainter>
+#include <QByteArray>
 #include <QApplication>
 #include <QKeyEvent>
 #include "robomongo/core/AppRegistry.h"
@@ -47,15 +48,15 @@ namespace
 
 namespace Robomongo
 {
-    const QColor RoboScintilla::marginsBackgroundColor = QColor(73, 76, 78);
-    const QColor RoboScintilla::caretForegroundColor = QColor("#FFFFFF");
-    const QColor RoboScintilla::matchedBraceForegroundColor = QColor("#FF8861");
+    const QColor RoboScintilla::marginsBackgroundColor = QColor("#f4f6fa");
+    const QColor RoboScintilla::caretForegroundColor = QColor("#243247");
+    const QColor RoboScintilla::matchedBraceForegroundColor = QColor("#247c68");
 
     RoboScintilla::RoboScintilla(QWidget *parent) : QsciScintilla(parent),
         _ignoreEnterKey(false),
         _ignoreTabKey(false),
-        _lineNumberDigitWidth(0),
-        _lineNumberMarginWidth(0)
+        _lineNumberMarginWidth(0),
+        _lineNumberDigitWidth(0)
     {
         setAutoIndent(true);
         setIndentationsUseTabs(false);
@@ -63,17 +64,29 @@ namespace Robomongo
         setUtf8(true);
         setMarginWidth(1, 0);
         setCaretForegroundColor(caretForegroundColor);
-        setMatchedBraceForegroundColor(matchedBraceForegroundColor); //1AB0A6
-        setMatchedBraceBackgroundColor(marginsBackgroundColor);
+        setMatchedBraceForegroundColor(matchedBraceForegroundColor);
+        setMatchedBraceBackgroundColor(QColor("#dcefe8"));
+        setUnmatchedBraceForegroundColor(QColor("#bd4052"));
+        setUnmatchedBraceBackgroundColor(QColor("#fdecef"));
+        setPaper(QColor("#ffffff"));
+        setColor(caretForegroundColor);
+        setSelectionBackgroundColor(QColor("#dcefe8"));
+        setSelectionForegroundColor(caretForegroundColor);
+        setCaretLineBackgroundColor(QColor("#f4f8f7"));
+        setCaretLineVisible(true);
+        setIndentationGuidesForegroundColor(QColor("#dce3ec"));
         setContentsMargins(0, 0, 0, 0);
         setViewportMargins(3, 3, 3, 3);
         QFont ourFont = GuiRegistry::instance().font();
         setMarginsFont(ourFont);
         setMarginLineNumbers(0, true);
-        setMarginsBackgroundColor(QColor(53, 56, 58));
-        setMarginsForegroundColor(QColor(173, 176, 178));
+        setMarginsBackgroundColor(marginsBackgroundColor);
+        setMarginsForegroundColor(QColor("#8794a7"));
 
-        SendScintilla(QsciScintilla::SCI_STYLESETFONT, 1, ourFont.family().data());
+        setFont(ourFont);
+        // Retain layout for visible lines without caching the entire document.
+        SendScintilla(SCI_SETLAYOUTCACHE, SC_CACHE_PAGE);
+        SendScintilla(SCI_SETPOSITIONCACHE, 2048);
         SendScintilla(QsciScintilla::SCI_SETHSCROLLBAR, 0);
 
         setWrapMode((QsciScintilla::WrapMode)QsciScintilla::SC_WRAP_NONE);
@@ -89,7 +102,6 @@ namespace Robomongo
         updateLineNumbersMarginWidth();
 
         setLineNumbers(AppRegistry::instance().settingsManager()->lineNumbers());
-        setUtf8(true);
         VERIFY(connect(this, SIGNAL(linesChanged()), this, SLOT(updateLineNumbersMarginWidth())));
     }
 
@@ -100,8 +112,8 @@ namespace Robomongo
 
     int RoboScintilla::textWidth(int style, const QString &text)
     {
-        const char *byteArray = (text.toUtf8()).constData();
-        return SendScintilla(SCI_TEXTWIDTH, style, byteArray);
+        const QByteArray bytes = text.toUtf8();
+        return SendScintilla(SCI_TEXTWIDTH, style, bytes.constData());
     }
 
     void RoboScintilla::wheelEvent(QWheelEvent *e)
@@ -133,7 +145,7 @@ namespace Robomongo
     void RoboScintilla::keyPressEvent(QKeyEvent *keyEvent)
     {
         if (_ignoreEnterKey) {
-            if (keyEvent->key() == Qt::Key_Return) {
+            if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
                 keyEvent->ignore();
                 _ignoreEnterKey = false;
                 return;
@@ -174,8 +186,12 @@ namespace Robomongo
 
     void RoboScintilla::updateLineNumbersMarginWidth()
     {
-        int numberOfDigits = getNumberOfDigits(lines());
-        _lineNumberMarginWidth = numberOfDigits * _lineNumberDigitWidth + rowNumberWidth;
+        const int numberOfDigits = qMax(2, getNumberOfDigits(lines()));
+        const int width = numberOfDigits * _lineNumberDigitWidth + rowNumberWidth * 2;
+        if (_lineNumberMarginWidth == width)
+            return;
+
+        _lineNumberMarginWidth = width;
 
         // If line numbers margin already displayed, update its width
         if (lineNumberMarginWidth()) {

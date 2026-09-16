@@ -5,11 +5,11 @@
 #include <QVariantList>
 #include <QUuid>
 #include <QJsonArray>
-#include <QXmlStreamReader>
 #include <QDirIterator>
 
-#include <parser.h>
-#include <serializer.h>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 
 #include "robomongo/core/settings/ConnectionSettings.h"
 #include "robomongo/core/settings/CredentialSettings.h"
@@ -20,36 +20,10 @@
 #include "robomongo/core/utils/StdUtils.h"
 #include "robomongo/gui/AppStyle.h"
 #include "robomongo/utils/common.h"
-#include "robomongo/utils/qzip/qzipreader_p.h"
 #include "robomongo/utils/RoboCrypt.h"
 
 namespace Robomongo
 {
-    // 3T config files
-    auto const Studio3T_PropertiesDat {
-        QString("%1/.3T/studio-3t/properties.dat").arg(QDir::homePath())
-    };
-    auto const DataMongodb_PropertiesDat { 
-        QString("%1/.3T/data-man-mongodb/properties.dat").arg(QDir::homePath())
-    };
-    auto const MongoChefPro_PropertiesDat {
-        QString("%1/.3T/mongochef-pro/properties.dat").arg(QDir::homePath())
-    };
-    auto const MongoChefEnt_PropertiesDat {
-        QString("%1/.3T/mongochef-enterprise/properties.dat").arg(QDir::homePath())
-    };
-
-    const std::vector<std::pair<QString, QString>> S_3T_ZipFile_And_ConfigFile_List
-    {
-        { Studio3T_PropertiesDat, "Studio3T.properties" },
-        { DataMongodb_PropertiesDat, "3T.data-man-mongodb.properties" },
-        { MongoChefPro_PropertiesDat, "3T.mongochef-pro.properties" },
-        { MongoChefEnt_PropertiesDat, "3T.mongochef-enterprise.properties" }
-    };
-
-    // Extract zipFile and find the value of "anonymousID" field in propFile
-    QString extractAnonymousIDFromZip(QString const& zipFile, QString const& propfile);
-
     // Extract "anonymousID" from a config file
     QString extractAnonymousID(QString const& configFile);
 
@@ -75,6 +49,7 @@ namespace Robomongo
     //            be defined and placed into the vector initializer list below in order.
     std::vector<QString> const SettingsManager::_configFilesOfOldVersions
     {
+        QString("%1/.3T/robo-3t/1.4.4/robo3t.json").arg(QDir::homePath()),
         QString("%1/.3T/robo-3t/1.4.3/robo3t.json").arg(QDir::homePath()), // CONFIG_FILE_1_4_3
         QString("%1/.3T/robo-3t/1.4.2/robo3t.json").arg(QDir::homePath()), // CONFIG_FILE_1_4_2
         QString("%1/.3T/robo-3t/1.4.1/robo3t.json").arg(QDir::homePath()), // CONFIG_FILE_1_4_1
@@ -104,6 +79,8 @@ namespace Robomongo
         _viewMode(Robomongo::Tree),
         _autocompletionMode(AutocompleteAll),
         _loadMongoRcJs(false),
+        _autoExpand(true),
+        _autoExec(true),
         _minimizeToTray(false),
         _lineNumbers(false),
         _disableConnectionShortcuts(false),
@@ -144,11 +121,10 @@ namespace Robomongo
         if (!f.open(QIODevice::ReadOnly))
             return false;
 
-        bool ok;
-        QJson::Parser parser;
-        QVariantMap map = parser.parse(f.readAll(), &ok).toMap();
-        if (!ok)
+        const auto document = QJsonDocument::fromJson(f.readAll());
+        if (!document.isObject())
             return false;
+        QVariantMap map = document.object().toVariantMap();
 
         loadFromMap(map);
 
@@ -163,20 +139,20 @@ namespace Robomongo
     {
         QVariantMap const& map = convertToMap();
 
-        QFile f(ConfigFilePath);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QSaveFile f(ConfigFilePath);
+        if (!f.open(QIODevice::WriteOnly)) {
             LOG_MSG("ERROR: Could not write settings to: " + ConfigFilePath, mongo::logger::LogSeverity::Error());
             return false;
         }
 
-        bool ok;
-        QJson::Serializer s;
-        s.setIndentMode(QJson::IndentFull);
-        s.serialize(map, &f, &ok);
+        const auto json = QJsonDocument(QJsonObject::fromVariantMap(map)).toJson(QJsonDocument::Indented);
+        if (f.write(json) != json.size() || !f.commit()) {
+            LOG_MSG("ERROR: Could not save settings to: " + ConfigFilePath, mongo::logger::LogSeverity::Error());
+            return false;
+        }
 
         LOG_MSG("Settings saved to: " + ConfigFilePath, mongo::logger::LogSeverity::Info());
-
-        return ok;
+        return true;
     }
 
     void SettingsManager::addCacheData(QString const& key, QVariant const& value)
@@ -238,11 +214,15 @@ namespace Robomongo
         _loadMongoRcJs = map.value("loadMongoRcJs").toBool();
         _disableConnectionShortcuts = map.value("disableConnectionShortcuts").toBool();
         
-        if (map.contains("acceptedEulaVersions")) 
-            _acceptedEulaVersions = map.value("acceptedEulaVersions").toStringList().toSet();
+        if (map.contains("acceptedEulaVersions")) {
+            const auto versions = map.value("acceptedEulaVersions").toStringList();
+            _acceptedEulaVersions = QSet<QString>(versions.begin(), versions.end());
+        }
         
-        if (map.contains("dbVersionsConnected"))
-            _dbVersionsConnected = map.value("dbVersionsConnected").toStringList().toSet();
+        if (map.contains("dbVersionsConnected")) {
+            const auto versions = map.value("dbVersionsConnected").toStringList();
+            _dbVersionsConnected = QSet<QString>(versions.begin(), versions.end());
+        }
         
         // Load anonymousID
         _anonymousID = getOrCreateAnonymousID(map);
@@ -402,21 +382,15 @@ namespace Robomongo
 
         // If anonymousID has never been created or is empty, create a new one. Otherwise load the existing.
         if (map.contains("anonymousID")) {
-            QUuid id = map.value("anonymousID").toString();
+            QUuid id(map.value("anonymousID").toString());
             if (!id.isNull())
                 anonymousID = id.toString();
         }
 
-        // Search and import "anonymousID" from other Studio 3T config files
-        for (auto const& zipFileAndConfigFile : S_3T_ZipFile_And_ConfigFile_List) {
-            if (!anonymousID.isEmpty())
-                break;
+        if (qEnvironmentVariableIsSet("ROBOMONGO_PROFILE_DIR"))
+            return anonymousID.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces)
+                                         : QUuid(anonymousID).toString(QUuid::WithoutBraces);
 
-            QUuid const& id = extractAnonymousIDFromZip(zipFileAndConfigFile.first, zipFileAndConfigFile.second);
-            if (!id.isNull())
-                anonymousID = id.toString();
-        }
-                 
         // Search and import "anonymousID" from other Robo 3T old config files starting from latest
         for (auto const& oldConfigFile : _configFilesOfOldVersions) {         
             if (!anonymousID.isEmpty())
@@ -528,6 +502,7 @@ namespace Robomongo
 
     void SettingsManager::importFromOldVersion()
     {
+        if (qEnvironmentVariableIsSet("ROBOMONGO_PROFILE_DIR")) return;
         if (_imported)
             return;
 
@@ -552,11 +527,10 @@ namespace Robomongo
         if (!oldConfigFile.open(QIODevice::ReadOnly))
             return false;
 
-        bool ok;
-        QJson::Parser parser;
-        QVariantMap vmap = parser.parse(oldConfigFile.readAll(), &ok).toMap();
-        if (!ok)
+        const auto document = QJsonDocument::fromJson(oldConfigFile.readAll());
+        if (!document.isObject())
             return false;
+        QVariantMap vmap = document.object().toVariantMap();
 
         QVariantList vconns = vmap.value("connections").toList();
         for (QVariantList::iterator itconn = vconns.begin(); itconn != vconns.end(); ++itconn)
@@ -664,11 +638,10 @@ namespace Robomongo
         if (!oldConfigFile.open(QIODevice::ReadOnly))
             return false;
 
-        bool ok;
-        QJson::Parser parser;
-        QVariantMap vmap = parser.parse(oldConfigFile.readAll(), &ok).toMap();
-        if (!ok)
+        const auto document = QJsonDocument::fromJson(oldConfigFile.readAll());
+        if (!document.isObject())
             return false;
+        QVariantMap vmap = document.object().toVariantMap();
 
         //// Import keys
         _autoExpand      = vmap.value("autoExpand").toBool();
@@ -694,27 +667,6 @@ namespace Robomongo
         ));
     }
 
-    QString extractAnonymousIDFromZip(QString const& zipFile, QString const& propfile)
-    {
-        QZipReader zipReader(zipFile);
-        if (!zipReader.exists() || !zipReader.isReadable()) 
-            return QString("");       
-
-        QXmlStreamReader reader(zipReader.fileData(propfile));
-        while (!reader.atEnd()) {
-            reader.readNext();
-            if (reader.text().toString() == "AnonymousID") {
-                reader.readNext();
-                reader.readNext();
-                reader.readNext();
-                reader.readNext();
-                return reader.text().toString();
-            }
-        }
-
-        return QString("");
-    }
-
     QString extractAnonymousID(QString const& configFilePath)
     {
         if (!QFile::exists(configFilePath))
@@ -724,15 +676,14 @@ namespace Robomongo
         if (!oldConfigFile.open(QIODevice::ReadOnly))
             return QString("");
 
-        bool ok = false;
-        QJson::Parser parser;
-        QVariantMap const& map = parser.parse(oldConfigFile.readAll(), &ok).toMap();
-        if (!ok)
-            return QString("");
+        const auto document = QJsonDocument::fromJson(oldConfigFile.readAll());
+        if (!document.isObject())
+            return QString();
+        const auto map = document.object().toVariantMap();
 
         QString anonymousID;
         if (map.contains("anonymousID")) {
-            QUuid const& id = map.value("anonymousID").toString();
+            const QUuid id(map.value("anonymousID").toString());
             if (!id.isNull())
                 anonymousID = id.toString();
         }

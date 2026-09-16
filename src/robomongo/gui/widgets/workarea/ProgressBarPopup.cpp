@@ -1,30 +1,46 @@
 #include "ProgressBarPopup.h"
 
+#include <QHideEvent>
 #include <QLabel>
 #include <QMovie>
+#include <QShowEvent>
 #include <QVBoxLayout>
 
 namespace Robomongo
 {
-
     ProgressBarPopup::ProgressBarPopup(QWidget *parent) :
         QFrame(parent)
     {
-        setStyleSheet("QFrame {background-color: #e1e1e1; border: 0px solid #c7c5c4; border-radius: 6px;}");
+        setObjectName("queryProgress");
+        setAccessibleName(tr("Query in progress"));
+        setStyleSheet(
+            "QFrame#queryProgress { background: white; border: 1px solid #dce3ec; border-radius: 8px; }"
+            "QFrame#queryProgress QLabel { background: transparent; border: none; }"
+        );
 
-        QMovie *movie = new QMovie(":robomongo/icons/progress_bar.gif", QByteArray(), this);
-        _progressLabel = new QLabel();
-        _progressLabel->setMovie(movie);
-        _progressLabel->setFixedWidth(widthProgress);
-        _progressLabel->setFixedHeight(heightProgress);
-        movie->start();
-
+        _movie = new QMovie(":robomongo/icons/progress_bar.gif", QByteArray(), this);
+        _movie->setCacheMode(QMovie::CacheAll);
+        _progressLabel = new QLabel(this);
+        _progressLabel->setMovie(_movie);
+        _progressLabel->setFixedSize(widthProgress, heightProgress);
         setFixedSize(width, height);
 
-        QVBoxLayout *layout = new QVBoxLayout();
-        layout->setContentsMargins((width-widthProgress)/2, (height-heightProgress)/2, (height-heightProgress)/2, (width-widthProgress)/2);
+        auto *layout = new QVBoxLayout(this);
+        layout->setContentsMargins(14, 14, 14, 14);
         layout->setSpacing(0);
         layout->addWidget(_progressLabel);
-        setLayout(layout);
+        hide();
+    }
+
+    void ProgressBarPopup::showEvent(QShowEvent *event)
+    {
+        QFrame::showEvent(event);
+        _movie->start();
+    }
+
+    void ProgressBarPopup::hideEvent(QHideEvent *event)
+    {
+        _movie->stop();
+        QFrame::hideEvent(event);
     }
 }

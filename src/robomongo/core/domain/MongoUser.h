@@ -1,6 +1,6 @@
 #pragma once
-#include <mongo/bson/bsonobj.h>
-#include <mongo/bson/bsonelement.h>
+#include "robomongo/core/bson/Bson.h"
+#include "robomongo/core/bson/Bson.h"
 
 #include "robomongo/core/utils/BsonUtils.h"
 

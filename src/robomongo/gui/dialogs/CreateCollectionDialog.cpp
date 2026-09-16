@@ -1,6 +1,6 @@
 #include "robomongo/gui/dialogs/CreateCollectionDialog.h"
 
-#include <mongo/bson/bsonobjbuilder.h>
+#include "robomongo/core/bson/Bson.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -22,7 +22,7 @@
 #include "robomongo/gui/editors/FindFrame.h"
 #include "robomongo/gui/editors/JSLexer.h"
 #include "robomongo/gui/editors/PlainJavaScriptEditor.h"
-#include "robomongo/shell/bson/json.h"
+#include "robomongo/core/bson/Bson.h"
 
 namespace Robomongo
 {
@@ -427,7 +427,7 @@ namespace Robomongo
         frame->sciScintilla()->setWrapMode((QsciScintilla::WrapMode)QsciScintilla::SC_WRAP_WORD);
         frame->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         frame->sciScintilla()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        frame->sciScintilla()->setStyleSheet("QFrame { background-color: rgb(73, 76, 78); border: 1px solid #c7c5c4; border-radius: 4px; margin: 0px; padding: 0px;}");
+        frame->sciScintilla()->setStyleSheet("QFrame { background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
     }
 
     bool CreateCollectionDialog::validate(JSONFrame* frame, mongo::BSONObj& bsonObj, bool silentOnSuccess /* = true */)

@@ -58,6 +58,11 @@ namespace Robomongo
          */
         void closeTabsToTheRightRequested(int tabIndex);
     protected:
+        void paintEvent(QPaintEvent *event) override;
+        void tabInserted(int index) override;
+        QSize tabSizeHint(int index) const override;
+        QSize minimumTabSizeHint(int index) const override;
+
         /**
          * @brief Overrides QTabBar::mouseReleaseEvent() in order to support
          * middle-mouse tab close and to implement tab context menu.

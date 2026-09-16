@@ -134,11 +134,17 @@ namespace Robomongo
         VERIFY(connect(removeAction, SIGNAL(triggered()), this, SLOT(remove())));
 
         _listWidget = new ConnectionsTreeWidget;
+        _listWidget->setObjectName("connectionsList");
         GuiRegistry::instance().setAlternatingColor(_listWidget);
 #if defined(Q_OS_MAC)
         _listWidget->setAttribute(Qt::WA_MacShowFocusRect, false);
 #endif
         _listWidget->setIndentation(5);
+        _listWidget->setUniformRowHeights(true);
+        _listWidget->setAnimated(false);
+        _listWidget->setRootIsDecorated(false);
+        _listWidget->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        _listWidget->header()->setResizeContentsPrecision(100);
 
         QStringList colums;
         colums << "Name" << "Address" << "Attributes" << "Auth. Database / User";
@@ -168,6 +174,7 @@ namespace Robomongo
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel | QDialogButtonBox::Save);
         buttonBox->button(QDialogButtonBox::Save)->setIcon(GuiRegistry::instance().serverIcon());
         buttonBox->button(QDialogButtonBox::Save)->setText("C&onnect");
+        buttonBox->button(QDialogButtonBox::Save)->setDefault(true);
         VERIFY(connect(buttonBox, SIGNAL(accepted()), this, SLOT(accept())));
         VERIFY(connect(buttonBox, SIGNAL(rejected()), this, SLOT(reject())));
 
@@ -198,20 +205,23 @@ namespace Robomongo
             "<a style='color: %1' href='edit'>edit</a>, "
             "<a style='color: %1' href='remove'>remove</a>, "
             "<a style='color: %1' href='clone'>clone</a> "
-            "or reorder connections via drag'n'drop.").arg("#106CD6"));
+            "or reorder connections via drag'n'drop.").arg("#247c68"));
         intro->setWordWrap(true);
 
         VERIFY(connect(intro, SIGNAL(linkActivated(QString)), this, SLOT(linkActivated(QString))));
 
         QVBoxLayout *firstColumnLayout = new QVBoxLayout;
+        firstColumnLayout->setSpacing(12);
         firstColumnLayout->addWidget(intro);
         firstColumnLayout->addWidget(_listWidget, 1);
         firstColumnLayout->addLayout(bottomLayout);
 
         QHBoxLayout *mainLayout = new QHBoxLayout(this);
+        mainLayout->setContentsMargins(18, 16, 18, 16);
         mainLayout->addLayout(firstColumnLayout, 1);
 
         // Populate list with connections
+        _listWidget->setUpdatesEnabled(false);
         std::vector<ConnectionSettings*> connectionSettings = _settingsManager->connections();
         for (auto const& connSetting : connectionSettings) {
             ConnectionSettings *connectionModel { connSetting };
@@ -221,6 +231,7 @@ namespace Robomongo
         // Highlight last item
         if (_listWidget->topLevelItemCount() > 0)
             _listWidget->setCurrentItem(_listWidget->topLevelItem(_listWidget->topLevelItemCount()-1));
+        _listWidget->setUpdatesEnabled(true);
 
         _listWidget->setFocus();
         resize(getSetting("ConnectionsDialog/size").toSize());
@@ -295,7 +306,7 @@ namespace Robomongo
             return;
 
         auto connection = currentItem->connection();
-        boost::scoped_ptr<ConnectionSettings> clonedConnection(connection->clone());
+        std::unique_ptr<ConnectionSettings> clonedConnection(connection->clone());
         ConnectionDialog editDialog(clonedConnection.get(), this);
 
         // Do nothing if not accepted

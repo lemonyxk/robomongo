@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QStackedWidget>
+#include <QPointer>
 
 #include "robomongo/core/Core.h"
 #include "robomongo/core/domain/MongoQueryInfo.h"
@@ -35,6 +36,7 @@ namespace Robomongo
                                 const MongoQueryInfo &queryInfo, double secs, bool multipleResults,
                                 bool tabbedResults, bool firstItem, bool lastItem, AggrInfo aggrInfo,
                                 QWidget *parent);
+        ~OutputItemContentWidget() override;
         int _initialSkip;
         int _initialLimit;
         void updateWithInfo(const MongoQueryInfo &inf, const std::vector<MongoDocumentPtr> &documents);
@@ -46,6 +48,8 @@ namespace Robomongo
         bool isTableModeSupported() const { return _isTableModeSupported; }
         ViewMode viewMode() const { return _viewMode; }
 
+        const MongoQueryInfo &queryInfo() const { return _queryInfo; }
+        void refreshAfterWrite();
         void refreshOutputItem();
         void markUninitialized();
 
@@ -65,12 +69,13 @@ namespace Robomongo
         void showCustom();
 
     private Q_SLOTS:
-        void jsonPartReady(const QString &json);
         void refresh(int skip, int batchSize);
         void paging_rightClicked(int skip, int batchSize);
         void paging_leftClicked(int skip, int limit);      
 
     private:
+        void jsonPartReady(const QString &json, quint64 generation);
+        void stopJsonPreparation();
         void setup(double secs, bool multipleResults, bool tabbedResults, bool firstItem, bool lastItem);
         FindFrame *configureLogText();
         BsonTreeModel *configureModel();
@@ -88,7 +93,9 @@ namespace Robomongo
         AggrInfo _aggrInfo;
 
         QStackedWidget *_stack;
-        JsonPrepareThread *_thread;
+        QPointer<JsonPrepareThread> _thread;
+        quint64 _jsonGeneration = 0;
+        bool _writeRefreshQueued = false;
 
         MongoShell *_shell;
         OutputItemHeaderWidget *_header;

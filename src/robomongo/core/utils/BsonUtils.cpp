@@ -1,22 +1,15 @@
 #include "robomongo/core/utils/BsonUtils.h"
-
-#include <mongo/client/dbclient_base.h>
-//#include <mongo/bson/bsonobjiterator.h>
-#include "mongo/util/base64.h"
-#include "mongo/util/str.h"
-
-#include "robomongo/core/utils/Logger.h"
-#include "robomongo/core/utils/QtUtils.h"
 #include "robomongo/core/HexUtils.h"
-
-// v0.9
-#include "robomongo/shell/db/ptimeutil.h"
-
+#include <QDateTime>
+#include <QTimeZone>
+#include <QString>
+#include <QByteArray>
+#include <cmath>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 using namespace mongo;
-namespace Robomongo
-{
-    namespace BsonUtils
-    {
+namespace Robomongo { namespace BsonUtils {
         namespace detail
         {
             template<>
@@ -62,302 +55,71 @@ namespace Robomongo
             }
         }
 
-        std::string jsonString(const BSONObj &obj, JsonStringFormat format, int pretty, UUIDEncoding uuidEncoding, SupportedTimes timeFormat, bool isArray)
-        {
-            using namespace std;
 
-            // Use of method, that is implemented in Robomongo Shell
-            // Method "isArray()" is not part of MongoDB.
-            // In order for this method to work, someone should
-            // explicetly call "markAsArray()" method on BSONObj.
-            // This is done in the Robomongo Shell (MongoDB fork)
-            if (obj.isArray()) {
-               isArray = true;
-            }
-
-            if ( obj.isEmpty() ) {
-                return isArray? "[]" : "{}";
-            }
-
-            StringBuilder s;
-            s << (isArray ? "[" : "{");
-            BSONObjIterator i(obj);
-            BSONElement e = i.next();
-
-            if ( !e.eoo() ) {
-                while ( 1 ) {
-                    if ( pretty ) {
-                        s << '\n';
-                        for( int x = 0; x < pretty; x++ ) {
-                            s << "    ";
-                        }
-                    }
-                    else {
-                        s << " ";
-                    }
-
-                    s << jsonString(e, format, true, pretty ? pretty + 1 : 0, uuidEncoding, timeFormat, isArray);
-                    e = i.next();
-
-                    if (e.eoo()) {
-                        s << '\n';
-                        for( int x = 0; x < pretty - 1; x++ ) {
-                            s << "    ";
-                        }
-                        s << (isArray ? "]" : "}");
-                        break;
-                    }
-
-                    s << ",";
-                }
-            }
-            return s.str();
-        }
-
-        std::string jsonString(const BSONElement &elem, JsonStringFormat format, bool includeFieldNames, 
-                               int pretty, UUIDEncoding uuidEncoding, SupportedTimes timeFormat, bool isArray)
-        {
-            using namespace std;
-            BSONType t = elem.type();            
-
-            std::stringstream s;
-            if ( includeFieldNames && !isArray)
-                s << '"' << mongo::str::escape(elem.fieldName()) << "\" : ";
-
-            switch ( t ) {
-            case Undefined:
-                s << "undefined";
-                break;
-            case mongo::String:
-            case Symbol:
-                s << '"' << mongo::str::escape(std::string(elem.valuestr(), elem.valuestrsize() - 1))
-                  << '"';
-                break;
-            case NumberLong:
-                s << "NumberLong(" << elem._numberLong() << ")";
-                break;
-            case NumberInt:
-                s << elem._numberInt();
-                break;
-            case NumberDouble:
-                {
-                    if ( elem.number() >= -std::numeric_limits< double >::max() &&
-                         elem.number() <= std::numeric_limits< double >::max() ) {
-                        std::stringstream ss;
-                        ss.precision(std::numeric_limits<double>::digits10);
-                        ss << elem.Double();
-                        std::string const str =
-                            reformatDoubleString(QString::fromStdString(ss.str()), elem.Double());
-
-                        s << (str);
-                    }
-                    else if (std::isnan(elem.number()) ) {                        
-                        s << "NaN";
-                    }
-                    else if (std::isinf(elem.number()) ) {
-                        s << (std::to_string(elem.number()) == "inf" ? "Infinity" : "-Infinity");
-                    }
-                    else {
-                        StringBuilder ss;
-                        ss << "BsonUtils::jsonString(): Number " << elem.number() 
-                           << " cannot be represented in JSON";
-                        LOG_MSG(ss.str(), mongo::logger::LogSeverity::Error());
-                    }
-                    break;
-                }
-            case NumberDecimal:
-                s << "NumberDecimal(\"" << elem._numberDecimal().toString() << "\")";
-                break;
-            case mongo::Bool:
-                s << ( elem.boolean() ? "true" : "false" );
-                break;
-            case jstNULL:
-                s << "null";
-                break;
-            case Object: {
-                BSONObj obj = elem.embeddedObject();
-                s << jsonString(obj, format, pretty, uuidEncoding, timeFormat);
-                }
-                break;
-            case mongo::Array: {
-                if ( elem.embeddedObject().isEmpty() ) {
-                    s << "[]";
-                    break;
-                }
-                s << "[ ";
-                BSONObjIterator i( elem.embeddedObject() );
-                BSONElement e = i.next();
-                if ( !e.eoo() ) {
-                    int count = 0;
-                    while ( 1 ) {
-                        if ( pretty ) {
-                            s << '\n';
-                            for( int x = 0; x < pretty; x++ )
-                                s << "    ";
-                        }
-
-                        if (strtol(e.fieldName(), 0, 10) > count) {
-                            s << "undefined";
-                        }
-                        else {
-                            s << jsonString(e, format, false, pretty ? pretty + 1 : 0, uuidEncoding, timeFormat, true);
-                            e = i.next();
-                        }
-                        count++;
-                        if ( e.eoo() ) {
-                            s << '\n';
-                            for( int x = 0; x < pretty - 1; x++ )
-                                s << "    ";
-                            s << "]";
-                            break;
-                        }
-                        s << ", ";
-                    }
-                }
-                //s << " ]";
-                break;
-            }
-            case DBRef: {
-                mongo::OID *x = (mongo::OID *) (elem.valuestr() + elem.valuestrsize());
-                if ( format == TenGen )
-                    s << "DBRef(";
-                else
-                    s << "{ \"$ref\" : ";
-                s << '"' << elem.valuestr() << "\", ";
-                if ( format != TenGen )
-                    s << "\"$id\" : ";
-                s << '"' << *x << "\"";
-                if ( format == TenGen )
-                    s << ')';
-                else
-                    s << '}';
-                break;
-            }
-            case jstOID:
-                if ( format == TenGen ) {
-                    s << "ObjectId(";
-                }
-                else {
-                    s << "{ \"$oid\" : ";
-                }
-                s << '"' << elem.__oid() << '"';
-                if ( format == TenGen ) {
-                    s << ")";
-                }
-                else {
-                    s << " }";
-                }
-                break;
-            case BinData: {
-                int len = *(int *)( elem.value() );
-                BinDataType type = BinDataType( *(char *)( (int *)( elem.value() ) + 1 ) );
-
-                if (type == mongo::bdtUUID || type == mongo::newUUID) {
-                    s << HexUtils::formatUuid(elem, uuidEncoding);
-                    break;
-                }
-
-                s << "{ \"$binary\" : \"";
-                char *start = ( char * )( elem.value() ) + sizeof( int ) + 1;
-                base64::encode( s , start , len );
-                s << "\", \"$type\" : \"" << hex;
-                s.width( 2 );
-                s.fill( '0' );
-                s << type << dec;
-                s << "\" }";
-                break;
-            }
-            case mongo::Date:
-                {
-                    Date_t d = elem.date();
-                    long long ms = d.toMillisSinceEpoch(); //static_cast<long long>(d.millis);
-                    bool isSupportedDate = miutil::minDate < ms && ms < miutil::maxDate;
-
-                    if ( format == Strict )
-                        s << "{ \"$date\" : ";
-                    else{
-                        if (isSupportedDate) {
-                            s << "ISODate(";
-                        }
-                        else{
-                            s << "Date(";
-                        }
-                    }
-
-                    if ( pretty && isSupportedDate) {
-                        boost::posix_time::ptime epoch(boost::gregorian::date(1970, 1, 1));
-                        boost::posix_time::time_duration diff = boost::posix_time::millisec(ms);
-                        boost::posix_time::ptime time = epoch + diff;
-                        std::string timestr = miutil::isotimeString(time, true, timeFormat == LocalTime);
-                        s << '"' << timestr << '"';
-                    }
-                    else
-                        s << ms;
-
-                    if ( format == Strict )
-                        s << " }";
-                    else
-                        s << ")";
-                    break;
-                }
-            case RegEx:
-                if ( format == Strict ) {
-                    s << "{ \"$regex\" : \"" << mongo::str::escape(elem.regex());
-                    s << "\", \"$options\" : \"" << elem.regexFlags() << "\" }";
-                }
-                else {
-                    s << "/" << mongo::str::escape(elem.regex(), true) << "/";
-                    // FIXME Worry about alpha order?
-                    for ( const char *f = elem.regexFlags(); *f; ++f ) {
-                        switch ( *f ) {
-                        case 'g':
-                        case 'i':
-                        case 'm':
-                            s << *f;
-                        default:
-                            break;
-                        }
-                    }
-                }
-                break;
-
-            case CodeWScope: {
-                BSONObj scope = elem.codeWScopeObject();
-                if ( ! scope.isEmpty() ) {
-                    s << "{ \"$code\" : " << elem._asCode() << " , "
-                      << " \"$scope\" : " << scope.jsonString() << " }";
-                    break;
-                }
-            }
-
-            case Code:
-                s << elem._asCode();
-                break;
-
-            case bsonTimestamp:
-                if ( format == TenGen )
-                    s << "Timestamp(" << elem.timestamp().getSecs() << ", " << elem.timestampInc() << ")";
-                else 
-                    s << "{ \"$timestamp\" : { \"t\" : " << elem.timestamp().getSecs() << ", \"i\" : " 
-                      << elem.timestampInc() << " } }";
-                break;
-
-            case MinKey:
-                s << "{ \"$minKey\" : 1 }";
-                break;
-
-            case MaxKey:
-                s << "{ \"$maxKey\" : 1 }";
-                break;
-
-            default:
-                StringBuilder ss;
-                ss << "Cannot create a properly formatted JSON string with "
-                   << "element: " << elem.toString() << " of type: " << elem.type();
-            }
-            return s.str();
-        }
-    
+namespace {
+std::string doubleText(double value) {
+    if (std::isnan(value)) return "NaN";
+    if (std::isinf(value)) return value < 0 ? "-Infinity" : "Infinity";
+    std::ostringstream out; out << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+    auto text=out.str(); if(text.find_first_of(".eE")==std::string::npos)text+=".0";
+    return text;
+}
+std::string dateText(long long millis, SupportedTimes timeFormat) {
+    // Qt represents a wider date range than ISODate's four-digit year syntax.
+    auto date=QDateTime::fromMSecsSinceEpoch(millis,QTimeZone::utc());
+    if(!date.isValid() || date.date().year()<1 || date.date().year()>9999)
+        return "Date("+std::to_string(millis)+")";
+    if(timeFormat==LocalTime)date=date.toLocalTime();
+    return "ISODate("+mongo::quoteJson(date.toString(Qt::ISODateWithMs).toStdString())+")";
+}
+}
+std::string jsonString(const BSONObj &obj,JsonStringFormat format,int pretty,
+                      UUIDEncoding uuid,SupportedTimes timezone,bool array,bool plainIntegers) {
+    array=array||obj.isArray();
+    if(format==Strict) return obj.jsonString(Strict,pretty,array);
+    std::string out=array?"[":"{"; bool first=true;
+    for(auto element:obj) {
+        if(!first)out+=","; first=false;
+        if(pretty)out+="\n"+std::string(pretty*4,' '); else out+=" ";
+        out+=jsonString(element,format,!array,pretty?pretty+1:0,uuid,timezone,array,plainIntegers);
+    }
+    if(!first && pretty)out+="\n"+std::string((pretty-1)*4,' ');
+    else if(!first)out+=" ";
+    return out+(array?"]":"}");
+}
+std::string jsonString(const BSONElement &e,JsonStringFormat format,bool includeFieldNames,
+                      int pretty,UUIDEncoding uuid,SupportedTimes timezone,bool array,bool plainIntegers) {
+    const auto prefix=includeFieldNames&&!array?mongo::quoteJson(e.fieldName())+" : ":"";
+    if(format==Strict)return prefix+e.toString(false);
+    std::string value;
+    switch(e.type()) {
+    case mongo::String: value=mongo::quoteJson(e.String());break;
+    case NumberInt: value=plainIntegers?std::to_string(e.Int()):"NumberInt("+std::to_string(e.Int())+")";break;
+    case NumberLong: value=plainIntegers?std::to_string(e.Long()):"NumberLong("+mongo::quoteJson(std::to_string(e.Long()))+")";break;
+    case NumberDouble: value=doubleText(e.Double());break;
+    case NumberDecimal: value="NumberDecimal("+mongo::quoteJson(e.numberDecimal().toString())+")";break;
+    case mongo::Bool: value=e.Bool()?"true":"false";break;
+    case jstNULL: value="null";break;
+    case Undefined: value="undefined";break;
+    case Object: case mongo::Array: value=jsonString(e.Obj(),format,pretty,uuid,timezone,e.type()==mongo::Array,plainIntegers);break;
+    case jstOID: value="ObjectId("+mongo::quoteJson(e.OID().toString())+")";break;
+    case mongo::Date: value=dateText(e.date().toMillisSinceEpoch(),timezone);break;
+    case bsonTimestamp: value="Timestamp("+std::to_string(e.timestamp().getSecs())+", "+std::to_string(e.timestampInc())+")";break;
+    case BinData: {
+        int n=0;auto bytes=e.binData(n);
+        if((e.binDataType()==newUUID||e.binDataType()==bdtUUID)&&n==16)value=HexUtils::formatUuid(e,uuid);
+        else value="BinData("+std::to_string(static_cast<int>(e.binDataType()))+", "+mongo::quoteJson(QByteArray(bytes,n).toBase64().toStdString())+")";
+        break;
+    }
+    case RegEx: value="RegExp("+mongo::quoteJson(e.regex())+", "+mongo::quoteJson(e.regexFlags())+")";break;
+    case Code: value="Code("+mongo::quoteJson(e._asCode())+")";break;
+    case CodeWScope: value="Code("+mongo::quoteJson(e._asCode())+", "+jsonString(e.codeWScopeObject(),format,pretty,uuid,timezone,false,plainIntegers)+")";break;
+    case MinKey: value="MinKey()";break;
+    case MaxKey: value="MaxKey()";break;
+    default: value=e.toString(false);break;
+    }
+    return prefix+value;
+}
         bool isArray(const mongo::BSONElement &elem)
         {
             return isArray(elem.type());
@@ -561,226 +323,18 @@ namespace Robomongo
             }
         }
 
-        void buildJsonString(const mongo::BSONObj &obj, std::string &con, UUIDEncoding uuid, SupportedTimes tz)
-        {
-            mongo::BSONObjIterator iterator(obj);
-            con.append("{ \n");
-            while (iterator.more())
-            {
-                mongo::BSONElement e = iterator.next();
-                con.append("\"");
-                con.append(e.fieldName());
-                con.append("\"");
-                con.append(" : ");
-                buildJsonString(e, con, uuid, tz);
-                con.append(", \n");
-            }
-            con.append("\n}\n\n");
-        }
 
-        void buildJsonString(const mongo::BSONElement &elem, std::string &con, UUIDEncoding uuid, SupportedTimes tz)
-        {
-            switch (elem.type())
-            {
-            case NumberDouble:
-                {
-                    if (elem.number() >= -std::numeric_limits< double >::max() &&
-                        elem.number() <= std::numeric_limits< double >::max()) {
-                        std::stringstream ss;
-                        ss.precision(std::numeric_limits<double>::digits10);
-                        ss << elem.Double();          
-                        std::string const str = 
-                            reformatDoubleString(QString::fromStdString(ss.str()), elem.Double());
-
-                        con.append(str);
-                    }
-                    else if (std::isnan(elem.number())) {
-                        con.append("NaN");
-                    }
-                    else if (std::isinf(elem.number())) {
-                        con.append(std::to_string(elem.number()) == "inf" ? "Infinity" : "-Infinity");
-                    }
-                    else {
-                        StringBuilder ss;
-                        ss << "BsonUtils::buildJsonString(): Number " << elem.number() 
-                           << " cannot be represented in JSON";
-                        LOG_MSG(ss.str(), mongo::logger::LogSeverity::Error());
-                    }
-                }
-                break;
-            case String:
-                {
-                    con.append(elem.valuestr(), elem.valuestrsize() - 1);
-                }
-                break;
-            case Object:
-                {
-                    buildJsonString(elem.Obj(), con, uuid, tz);
-                }
-                break;
-            case Array:
-                {
-                    buildJsonString(elem.Obj(), con, uuid, tz);
-                }
-                break;
-            case BinData:
-                {
-                    mongo::BinDataType binType = elem.binDataType();
-                    if (binType == mongo::newUUID || binType == mongo::bdtUUID) {
-                        std::string uu = HexUtils::formatUuid(elem, uuid);
-                        con.append(uu);
-                        break;
-                    }
-                    con.append("<binary>");
-                }
-                break;
-            case Undefined:
-                con.append("undefined");
-                break;
-            case jstOID:
-                {
-                    std::string idValue = elem.OID().toString();
-                    char buff[256] = {0};
-                    sprintf(buff, "ObjectId(\"%s\")", idValue.c_str());
-                    con.append(buff);
-                }
-                break;
-            case Bool:
-                con.append(elem.Bool() ? "true" : "false");
-                break;
-            case Date:
-                {
-                    long long ms = (long long) elem.Date().toMillisSinceEpoch();
-                    bool isSupportedDate = miutil::minDate < ms && ms < miutil::maxDate;
-
-                    boost::posix_time::ptime epoch(boost::gregorian::date(1970, 1, 1));
-                    boost::posix_time::time_duration diff = boost::posix_time::millisec(ms);
-                    boost::posix_time::ptime time = epoch + diff;
-
-                    std::string date;
-                    if (isSupportedDate)
-                        date = miutil::isotimeString(time, false, tz == LocalTime);
-                    else
-                        date = boost::lexical_cast<std::string>(ms);
-
-                    con.append(date);
-                    break;
-                }
-            case jstNULL:
-                con.append("null");
-                break;
-
-            case RegEx:
-                {
-                    con.append("/" + std::string(elem.regex()) + "/");
-
-                    for ( const char *f = elem.regexFlags(); *f; ++f ) {
-                        switch ( *f ) {
-                        case 'g':
-                        case 'i':
-                        case 'm':
-                            con += *f;
-                        default:
-                            break;
-                        }
-                    }
-                }
-                break;
-            case DBRef:
-                break;
-            case Code:
-                con.append(elem._asCode());
-                break;
-            case Symbol:
-                con.append(elem.valuestr(), elem.valuestrsize() - 1);
-                break;
-            case CodeWScope:
-                {
-                    mongo::BSONObj scope = elem.codeWScopeObject();
-                    if (!scope.isEmpty() ) {
-                        con.append(elem._asCode());
-                        break;
-                    }
-                }
-                break;
-            case NumberInt:
-                {
-                    char num[16] = {0};
-                    sprintf(num, "%d", elem.Int());
-                    con.append(num);
-                    break;
-                }           
-            case bsonTimestamp:
-                {
-                    Date_t date = elem.timestampTime();
-                    unsigned long long millis = date.toMillisSinceEpoch(); // millis;
-                    if ((long long)millis >= 0 &&
-                        ((long long)millis/1000) < (std::numeric_limits<time_t>::max)()) {
-                            con.append(date.toString());
-                    }
-                    break;
-                }
-            case NumberLong:
-                {
-                    char num[32] = {0};
-                    sprintf(num, "%lld", elem.Long());
-                    con.append(num);
-                    break; 
-                }
-			case NumberDecimal:
-			{
-				con.append(elem.numberDecimal().toString());
-				break;
-			}
-            default:
-                con.append("<unsupported>");
-                break;
-            }
-        }
-
-        mongo::BSONElement indexOf(const mongo::BSONObj &doc, int index)
-        {
-            mongo::BSONObjIterator iterator(doc);
-            for (int i = 0; iterator.more(); ++i)
-            {
-                mongo::BSONElement element = iterator.next(); 
-                if (i == index) {
-                    return element;
-                }
-            }
-            return mongo::BSONElement();
-        }
-
-        int elementsCount(const mongo::BSONObj &doc)
-        {
-            mongo::BSONObjIterator iterator(doc);
-            int i = 0;
-            for (; iterator.more(); ++i)
-            {
-                iterator.next();                
-            }
-            return i;
-        }
-
-        std::string reformatDoubleString(QString str, double elemDouble)
-        {
-            // Leave trailing zero if needed
-            if (!str.contains("e+", Qt::CaseInsensitive) && 
-                !str.contains("e-", Qt::CaseInsensitive) && elemDouble == (long long)elemDouble)
-                str.append(".0");          
-            else if (str.endsWith("e+15", Qt::CaseInsensitive) || 
-                     str.endsWith("e+16", Qt::CaseInsensitive)) {
-                // Disable scientific format
-                std::stringstream ss2;
-                ss2.precision(std::numeric_limits<double>::digits10);
-                ss2 << std::fixed << elemDouble;
-                str = QString::fromStdString(ss2.str());
-                while (str.contains('.') && str.endsWith("00"))
-                    str.chop(1);
-            }
-
-            return str.toStdString();
-        }
-
-    } // BsonUtils
-} // Robomongo
+void buildJsonString(const BSONObj &obj,std::string &out,UUIDEncoding uuid,SupportedTimes timezone) {
+    out+=jsonString(obj,TenGen,1,uuid,timezone,false,true);
+}
+void buildJsonString(const BSONElement &element,std::string &out,UUIDEncoding uuid,SupportedTimes timezone) {
+    if(element.type()==mongo::String || element.type()==Symbol)out+=element.String();
+    else out+=jsonString(element,TenGen,false,0,uuid,timezone,false,true);
+}
+BSONElement indexOf(const BSONObj &obj,int index) {
+    for(auto element:obj)if(index--==0)return element;
+    return BSONElement();
+}
+int elementsCount(const BSONObj &obj) { return obj.nFields(); }
+std::string reformatDoubleString(QString,double value) { return doubleText(value); }
+} }

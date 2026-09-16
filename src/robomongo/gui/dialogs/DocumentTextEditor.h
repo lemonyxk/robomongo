@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QDialog>
-#include <mongo/bson/bsonobj.h>
+#include "robomongo/core/bson/Bson.h"
 #include "robomongo/core/domain/MongoQueryInfo.h"
 
 namespace Robomongo
@@ -17,6 +17,7 @@ namespace Robomongo
         static const QSize minimumSize;
 
         explicit DocumentTextEditor(const CollectionInfo &info, const QString &json, bool readonly = false, QWidget *parent = 0);
+        explicit DocumentTextEditor(const CollectionInfo &info, const mongo::BSONObj &document, bool readonly = false, QWidget *parent = 0);
 
         QString jsonText() const;
 
@@ -59,6 +60,7 @@ namespace Robomongo
         FindFrame *_queryText;
         bool _readonly;
         ReturnType _obj;
+        mongo::BSONObj _originalDocument;
+        bool _hasOriginalDocument = false;
     };
 }
-

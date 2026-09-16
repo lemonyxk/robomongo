@@ -1,7 +1,7 @@
 #pragma once
 
-#include <mongo/client/dbclient_base.h>
-#include <mongo/bson/bsonobj.h>
+#include "robomongo/core/mongodb/MongoConnection.h"
+#include "robomongo/core/bson/Bson.h"
 
 #include "robomongo/core/Core.h"
 #include "robomongo/core/domain/MongoQueryInfo.h"
@@ -59,6 +59,5 @@ namespace Robomongo
 
     private:
         mongo::DBClientBase *const _dbclient;
-        void checkLastErrorAndThrow(const std::string &db);
     };
 }

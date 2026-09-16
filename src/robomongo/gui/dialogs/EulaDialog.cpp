@@ -17,7 +17,7 @@
 #include <QUrlQuery>
 #include <QJsonObject>
 #include <QJsonDocument>
-#include <QDesktopWidget>
+#include <QScreen>
 #include <QTimeZone>
 
 #include "robomongo/core/AppRegistry.h"
@@ -142,8 +142,7 @@ namespace Robomongo
             restoreWindowSettings();
         }
         else {
-            auto const desktop = QApplication::desktop();
-            auto const& mainScreenSize = desktop->availableGeometry(desktop->primaryScreen()).size();
+            auto const mainScreenSize = screen()->availableGeometry().size();
             resize(mainScreenSize.width()*0.5, mainScreenSize.height()*0.6);
         }
     }
