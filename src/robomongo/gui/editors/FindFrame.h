@@ -30,6 +30,7 @@ namespace Robomongo
             return _scin;
         }
         void toggleComments();
+        int findPanelHeight() const;
         virtual ~FindFrame();
     protected:
         virtual void wheelEvent(QWheelEvent *e);

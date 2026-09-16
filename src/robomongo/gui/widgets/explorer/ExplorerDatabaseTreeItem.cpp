@@ -11,6 +11,7 @@
 #include "robomongo/core/domain/App.h"
 #include "robomongo/core/domain/MongoServer.h"
 #include "robomongo/core/mongodb/MongoWorker.h"
+#include "robomongo/core/mongodb/DataTransfer.h"
 #include "robomongo/core/utils/QtUtils.h"
 #include "robomongo/core/AppRegistry.h"
 #include "robomongo/core/EventBus.h"
@@ -20,6 +21,7 @@
 #include "robomongo/gui/widgets/explorer/ExplorerUserTreeItem.h"
 #include "robomongo/gui/widgets/explorer/ExplorerFunctionTreeItem.h"
 #include "robomongo/gui/GuiRegistry.h"
+#include "robomongo/gui/dialogs/DataTransferDialog.h"
 
 
 namespace
@@ -76,8 +78,17 @@ namespace Robomongo
         QAction *refreshDatabase = new QAction("Refresh", this);
         VERIFY(connect(refreshDatabase, SIGNAL(triggered()), SLOT(ui_refreshDatabase())));
 
+        QAction *importDatabase = new QAction(GuiRegistry::instance().importIcon(), "Import Database...", this);
+        VERIFY(connect(importDatabase, SIGNAL(triggered()), SLOT(ui_importDatabase())));
+
+        QAction *exportDatabase = new QAction(GuiRegistry::instance().exportIcon(), "Export Database...", this);
+        VERIFY(connect(exportDatabase, SIGNAL(triggered()), SLOT(ui_exportDatabase())));
+
         BaseClass::_contextMenu->addAction(openDbShellAction);
         BaseClass::_contextMenu->addAction(refreshDatabase);
+        BaseClass::_contextMenu->addSeparator();
+        BaseClass::_contextMenu->addAction(importDatabase);
+        BaseClass::_contextMenu->addAction(exportDatabase);
         BaseClass::_contextMenu->addSeparator();
         BaseClass::_contextMenu->addAction(dbStats);
         BaseClass::_contextMenu->addSeparator();
@@ -273,6 +284,18 @@ namespace Robomongo
     void ExplorerDatabaseTreeItem::ui_refreshDatabase()
     {
         expandCollections();
+    }
+
+    void ExplorerDatabaseTreeItem::ui_importDatabase()
+    {
+        DataTransferDialog dialog(_database, QString(), DataTransferDirection::Import, treeWidget());
+        dialog.exec();
+    }
+
+    void ExplorerDatabaseTreeItem::ui_exportDatabase()
+    {
+        DataTransferDialog dialog(_database, QString(), DataTransferDirection::Export, treeWidget());
+        dialog.exec();
     }
 
     void ExplorerDatabaseTreeItem::ui_dbStatistics()

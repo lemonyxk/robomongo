@@ -49,6 +49,8 @@ namespace Robomongo
 
         void insertDocument(const mongo::BSONObj &obj, const MongoNamespace &ns);
         void saveDocument(const mongo::BSONObj &obj, const MongoNamespace &ns);
+        void updateField(const mongo::BSONObj &id, const std::string &fieldPath,
+                         const mongo::BSONObj &value, const MongoNamespace &ns);
         void removeDocuments(const MongoNamespace &ns, mongo::Query query, bool justOne = true);
         std::vector<MongoDocumentPtr> query(const MongoQueryInfo &info);
 

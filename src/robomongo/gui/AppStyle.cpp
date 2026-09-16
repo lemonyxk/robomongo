@@ -6,6 +6,9 @@
 
 #include "robomongo/core/AppRegistry.h"
 #include "robomongo/core/settings/SettingsManager.h"
+#include "robomongo/gui/editors/PlainJavaScriptEditor.h"
+#include "robomongo/gui/widgets/LogWidget.h"
+#include "robomongo/gui/widgets/workarea/BsonTableView.h"
 
 namespace Robomongo
 {
@@ -56,6 +59,12 @@ QSplitter::handle { background: #e5eaf1; }
 QDockWidget { titlebar-close-icon: url(:/robomongo/icons/close_2_16x16.png); }
 QDockWidget::title { background: #edf1f6; color: #68788e; padding: 8px 10px; }
 QToolBar { background: #f4f6fa; border: none; spacing: 4px; padding: 5px 4px; }
+QWidget#workspaceTools { background: #f4f6f8; border-bottom: 1px solid #dce3ec; }
+QToolBar#workspaceConnectionsToolbar, QToolBar#workspaceFilesToolbar, QToolBar#workspaceExecutionToolbar {
+    background: transparent; spacing: 2px; padding: 0 3px; border: none;
+}
+QToolBar#workspaceConnectionsToolbar QToolButton, QToolBar#workspaceFilesToolbar QToolButton,
+QToolBar#workspaceExecutionToolbar QToolButton { padding: 3px; }
 QToolBar::separator { background: #dce3ec; width: 1px; margin: 5px; }
 QToolButton { color: #243247; border: 1px solid transparent; border-radius: 5px; padding: 4px; }
 QToolButton:hover { background: #e7edf4; border-color: #dce3ec; }
@@ -84,7 +93,7 @@ QTreeView::item { padding: 3px 4px; }
 QTreeView::item:hover, QListView::item:hover { background: #edf5f2; }
 QTreeView::item:selected, QListView::item:selected { background: #247c68; color: white; }
 QTreeView#explorerTree { background: #f4f6fa; border: none; }
-QTreeView#explorerTree::item { min-height: 23px; padding: 3px 6px; }
+QTreeView#explorerTree::item { min-height: 18px; padding: 1px 4px; }
 QTreeView#explorerTree::item:selected { background: #dceee7; color: #195c4d; }
 QTreeView#explorerTree::item:selected:active { background: #cfe8de; }
 QHeaderView::section { background: #f0f3f8; color: #68788e; border: none; border-right: 1px solid #e0e6ee; border-bottom: 1px solid #dce3ec; padding: 5px 8px; }
@@ -142,10 +151,40 @@ QMessageBox { messagebox-text-interaction-flags: 5; }
             return result;
         }
 
+        const QFont &defaultInterfaceFont()
+        {
+            // Capture the system font before applying a saved override.
+            static const QFont font = QApplication::font();
+            return font;
+        }
+
+        void applyAppearanceSettings()
+        {
+            const SettingsManager *settings = AppRegistry::instance().settingsManager();
+            QFont font = defaultInterfaceFont();
+            if (!settings->uiFontFamily().isEmpty())
+                font.setFamily(settings->uiFontFamily());
+            if (settings->uiFontPointSize() > 0)
+                font.setPointSize(settings->uiFontPointSize());
+            QApplication::setFont(font);
+
+            // Existing query tabs keep their documents and selections intact.
+            const auto widgets = QApplication::allWidgets();
+            for (QWidget *widget : widgets) {
+                if (auto *table = qobject_cast<BsonTableView *>(widget))
+                    table->applyAppearanceSettings();
+                else if (auto *editor = qobject_cast<RoboScintilla *>(widget))
+                    editor->applyFontSettings();
+                else if (auto *log = qobject_cast<LogWidget *>(widget))
+                    log->applyFontSettings();
+            }
+        }
+
         void initStyle()
         {
             QString style = AppRegistry::instance().settingsManager()->currentStyle();
             applyStyle(style);
+            applyAppearanceSettings();
         }
     }
 

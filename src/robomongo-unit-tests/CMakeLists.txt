@@ -10,10 +10,17 @@ add_test(NAME robo_unit_tests COMMAND robo_unit_tests)
 add_executable(robo_mongodb_integration_tests EXCLUDE_FROM_ALL MongoClientIntegration_test.cpp)
 target_link_libraries(robo_mongodb_integration_tests PRIVATE robo_core GTest::gtest)
 target_sources(robo_unit_tests PRIVATE ${ROBO_SRC_DIR}/core/mongodb/MongoConnection_test.cpp)
+target_sources(robo_unit_tests PRIVATE ${ROBO_SRC_DIR}/core/mongodb/JsonDocumentReader_test.cpp)
+target_sources(robo_unit_tests PRIVATE ${ROBO_SRC_DIR}/core/mongodb/DataTransfer_test.cpp)
+target_sources(robo_unit_tests PRIVATE ${ROBO_SRC_DIR}/core/mongodb/ImportBatchWriter_test.cpp)
 add_executable(robo_shell_integration_tests EXCLUDE_FROM_ALL ${ROBO_SRC_DIR}/core/engine/ScriptEngine_integration_test.cpp)
 target_link_libraries(robo_shell_integration_tests PRIVATE robo_core)
-add_executable(robo_gui_tests OutputWidget_test.cpp)
+add_executable(robo_gui_tests OutputWidget_test.cpp FieldValueEditor_test.cpp ScriptWidget_test.cpp WorkspaceLayout_test.cpp)
 target_link_libraries(robo_gui_tests PRIVATE robo_core GTest::gtest)
 add_test(NAME robo_gui_tests COMMAND robo_gui_tests)
 set_tests_properties(robo_gui_tests PROPERTIES TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;ROBOMONGO_PROFILE_DIR=${CMAKE_CURRENT_BINARY_DIR}/gui-test-profile")
+add_test(NAME robo_autocomplete_tests COMMAND "${ROBOMONGO_NODE_EXECUTABLE}" --test
+    "${ROBOMONGO_RUNTIME_DIR}/mongosh-autocomplete.test.js"
+    "${ROBOMONGO_RUNTIME_DIR}/mongosh-bridge.test.js")
+set_tests_properties(robo_autocomplete_tests PROPERTIES TIMEOUT 60)

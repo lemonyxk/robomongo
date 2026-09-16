@@ -1,8 +1,10 @@
 #include "robomongo/core/domain/Notifier.h"
 
 #include <QAction>
+#include <QAbstractItemView>
 #include <QClipboard>
 #include <QApplication>
+#include <QCursor>
 #include <QMenu>
 
 #include "robomongo/core/domain/MongoShell.h"
@@ -19,6 +21,8 @@
 #include "robomongo/gui/widgets/workarea/OutputItemContentWidget.h"
 #include "robomongo/gui/widgets/workarea/BsonTreeItem.h"
 #include "robomongo/gui/dialogs/DocumentTextEditor.h"
+#include "robomongo/gui/dialogs/FieldValueEditor.h"
+#include "robomongo/gui/widgets/workarea/OutputWidget.h"
 #include "robomongo/gui/utils/DialogUtils.h"
 #include "robomongo/gui/GuiRegistry.h"
 #include "robomongo/core/EventBus.h"
@@ -378,6 +382,79 @@ namespace Robomongo
         std::vector<BsonTreeItem*> vec;
         vec.push_back(documentItem);
         return deleteDocuments(vec, false);
+    }
+
+    bool Notifier::editField(const QModelIndex &index)
+    {
+        if (!isEditable() || !index.isValid())
+            return false;
+        auto *item = QtUtils::item<BsonTreeItem *>(index);
+        if (!item || item == item->superParent() || item->superRoot().isArray())
+            return false;
+        const auto id = item->superRoot().getField("_id");
+        if (id.eoo())
+            return false;
+
+        QStringList segments;
+        for (auto *node = item; node != item->superParent();
+             node = qobject_cast<BsonTreeItem *>(node->parent())) {
+            if (!node)
+                return false;
+            const auto name = node->fieldName();
+            // A MongoDB update path must identify this exact field, including array
+            // indexes. Literal dotted/dollar keys and duplicate keys are ambiguous.
+            if (name.empty() || name.find('.') != std::string::npos || name.front() == '$')
+                return false;
+            int occurrences = 0;
+            for (const auto element : node->root())
+                if (name == element.fieldName())
+                    ++occurrences;
+            if (occurrences != 1)
+                return false;
+            segments.prepend(QString::fromStdString(name));
+        }
+        if (segments.isEmpty() || segments.first() == "_id")
+            return false;
+
+        for (auto *widget = dynamic_cast<QWidget *>(_observer); widget; widget = widget->parentWidget()) {
+            auto *result = qobject_cast<OutputItemContentWidget *>(widget);
+            if (result && result->outputWidget() && result->outputWidget()->progressBarActive())
+                return false;
+        }
+        if (_fieldEditor) {
+            _fieldEditor->raise();
+            _fieldEditor->activateWindow();
+            return true;
+        }
+
+        const QString path = segments.join('.');
+        auto *editor = new FieldValueEditor(path, item->root().getField(item->fieldName()),
+                                            dynamic_cast<QWidget *>(_observer));
+        _fieldEditor = editor;
+        editor->setAttribute(Qt::WA_DeleteOnClose);
+        const QPointer<MongoServer> server(_shell->server());
+        const auto ns = _queryInfo._info._ns;
+        const auto documentId = id.wrap();
+        connect(editor, &FieldValueEditor::saveRequested, editor,
+            [editor, server, documentId, ns, path](const QString &requestId, const mongo::BSONObj &value) {
+                if (!server) {
+                    editor->finishSave(requestId, tr("The connection is closed."));
+                    return;
+                }
+                server->updateField(documentId, path.toStdString(), value, ns, requestId);
+            });
+        connect(server.data(), &MongoServer::fieldUpdated, editor, &FieldValueEditor::finishSave);
+        connect(server.data(), &QObject::destroyed, editor, &FieldValueEditor::connectionClosed);
+        connect(editor, &FieldValueEditor::saved, this, &Notifier::refreshAfterWrite);
+        connect(editor, &QDialog::finished, this, [this] { _fieldEditor = nullptr; });
+        QRect anchor(QCursor::pos(), QSize(1, 1));
+        if (auto *view = dynamic_cast<QAbstractItemView *>(_observer)) {
+            const QRect cell = view->visualRect(index);
+            if (cell.isValid())
+                anchor = QRect(view->viewport()->mapToGlobal(cell.topLeft()), cell.size());
+        }
+        editor->showAt(anchor);
+        return true;
     }
 
     void Notifier::onEditDocument()

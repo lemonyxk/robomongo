@@ -16,7 +16,7 @@ namespace Robomongo
     #endif
         setContextMenuPolicy(Qt::DefaultContextMenu);
         setObjectName("explorerTree");
-        setIndentation(18);
+        setIndentation(16);
         setUniformRowHeights(true);
         setAnimated(false);
         setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);

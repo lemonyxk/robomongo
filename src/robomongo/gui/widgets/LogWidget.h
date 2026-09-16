@@ -20,6 +20,7 @@ namespace Robomongo
     public:
         typedef QWidget BaseClass;
         LogWidget(QWidget* parent = 0);        
+        void applyFontSettings();
 
     public Q_SLOTS:
         void addMessage(const QString &message, mongo::logger::LogSeverity level);

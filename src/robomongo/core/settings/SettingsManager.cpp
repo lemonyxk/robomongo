@@ -254,6 +254,9 @@ namespace Robomongo
         // Load font information
         _textFontFamily = map.value("textFontFamily").toString();
         _textFontPointSize = map.value("textFontPointSize").toInt();
+        _uiFontFamily = map.value("uiFontFamily").toString();
+        setUiFontPointSize(map.value("uiFontPointSize", -1).toInt());
+        setTableRowHeight(map.value("tableRowHeight", 0).toInt());
 
         if (map.contains("mongoTimeoutSec")) {
             _mongoTimeoutSec = map.value("mongoTimeoutSec").toInt();
@@ -356,6 +359,9 @@ namespace Robomongo
         // 11. Save font information
         map.insert("textFontFamily", _textFontFamily);
         map.insert("textFontPointSize", _textFontPointSize);
+        map.insert("uiFontFamily", _uiFontFamily);
+        map.insert("uiFontPointSize", _uiFontPointSize);
+        map.insert("tableRowHeight", _tableRowHeight);
 
         // 12. Save connections
         QVariantList list;

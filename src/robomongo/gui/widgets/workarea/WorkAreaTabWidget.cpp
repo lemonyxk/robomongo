@@ -31,13 +31,15 @@ namespace Robomongo
         setTabsClosable(true);
         setElideMode(Qt::ElideRight);
         setMovable(true);
-        setDocumentMode(false);
+        setDocumentMode(true);
+        setTabPosition(QTabWidget::North);
+        setContentsMargins(0, 0, 0, 0);
 
         setObjectName("workAreaTabs");
         setStyleSheet(
-            "QTabWidget#workAreaTabs { background: #f4f6f8; }"
-            "QTabWidget#workAreaTabs::pane { border: none; background: white; }"
-            "QTabWidget#workAreaTabs::tab-bar { alignment: left; }"
+            "QTabWidget#workAreaTabs { background: #f4f6f8; margin: 0; padding: 0; }"
+            "QTabWidget#workAreaTabs::pane { border: none; background: white; margin: 0; padding: 0; }"
+            "QTabWidget#workAreaTabs::tab-bar { alignment: left; top: 0; left: 0; }"
         );
 
         VERIFY(connect(this, SIGNAL(tabCloseRequested(int)), SLOT(tabBar_tabCloseRequested(int))));

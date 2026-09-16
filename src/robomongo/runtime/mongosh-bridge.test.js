@@ -69,10 +69,34 @@ test('persistent mongosh context, BSON, output, autocomplete, interruption and r
     const complete = await rpc('autocomplete', { code: 'ObjectI' });
     assert.ifError(complete.error);
     assert.ok(complete.result.completions.some((value) => value.includes('ObjectId')), JSON.stringify(complete));
-    assert.equal(await completionEngineLoaded(), 'true');
+    const callable = await rpc('autocomplete', { code: 'ObjectI', tokenOnly: true, functionCalls: true });
+    assert.ifError(callable.error);
+    assert.deepEqual(callable.result.completions, ['ObjectId()']);
+    // defineProperty returns globalThis; do not serialize the whole shell during setup.
+    assert.ifError((await rpc('eval', { code: 'var completionGetterCalls = 0; void Object.defineProperty(globalThis, "completionGetter", { configurable: true, get() { completionGetterCalls++; return function() {}; } });' })).error);
+    const accessor = await rpc('autocomplete', { code: 'completionGetter', tokenOnly: true, functionCalls: true });
+    assert.ifError(accessor.error);
+    assert.ok(accessor.result.completions.includes('completionGetter'));
+    assert.ok(!accessor.result.completions.includes('completionGetter()'));
+    const getterCalls = await rpc('eval', { code: 'completionGetterCalls' });
+    assert.ifError(getterCalls.error);
+    assert.equal(getterCalls.result.results[0].output, '0', 'completion must not invoke global getters');
+    assert.equal(await completionEngineLoaded(), 'false', 'typing must not load TypeScript autocomplete');
     const completeWithoutCollections = await rpc('autocomplete', { code: 'NumberL', includeCollectionNames: false });
     assert.ifError(completeWithoutCollections.error);
     assert.ok(completeWithoutCollections.result.completions.some((value) => value.includes('NumberLong')));
+    const operator = await rpc('autocomplete', { code: 'db.users.find({ age: { $g', tokenOnly: true });
+    assert.ifError(operator.error);
+    assert.deepEqual(operator.result.completions, ['$gt', '$gte', '$geoWithin', '$geoIntersects']);
+    // Metadata and an awaited user query must not block editor completions.
+    let evaluationSettled = false;
+    const slowEvaluation = rpc('eval', { code: 'new Promise(resolve => setTimeout(() => resolve(7), 150))' });
+    slowEvaluation.then(() => { evaluationSettled = true; });
+    const whileEvaluating = await rpc('autocomplete', { code: 'db.users.fi', tokenOnly: true });
+    assert.ifError(whileEvaluating.error);
+    assert.ok(whileEvaluating.result.completions.includes('db.users.find'));
+    assert.equal(evaluationSettled, false, 'completion must bypass the asynchronous evaluation queue');
+    assert.ifError((await slowEvaluation).error);
     assert.ifError((await rpc('invalidateAutocomplete')).error);
     assert.ok((await rpc('autocomplete', { code: 'ObjectI' })).result.completions.includes('ObjectId'));
     const partial = await rpc('eval', { code: '({ok:1}); print("before"); throw new Error("expected")' });

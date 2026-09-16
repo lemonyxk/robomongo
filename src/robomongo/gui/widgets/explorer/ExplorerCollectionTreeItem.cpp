@@ -10,10 +10,12 @@
 #include "robomongo/gui/dialogs/CreateDatabaseDialog.h"
 #include "robomongo/gui/dialogs/CopyCollectionDialog.h"
 #include "robomongo/gui/dialogs/DocumentTextEditor.h"
+#include "robomongo/gui/dialogs/DataTransferDialog.h"
 #include "robomongo/gui/GuiRegistry.h"
 #include "robomongo/gui/utils/DialogUtils.h"
 
 #include "robomongo/core/settings/ConnectionSettings.h"
+#include "robomongo/core/mongodb/DataTransfer.h"
 #include "robomongo/core/domain/MongoCollection.h"
 #include "robomongo/core/domain/MongoServer.h"
 #include "robomongo/core/domain/App.h"
@@ -84,7 +86,16 @@ namespace Robomongo
         QAction *viewCollection = new QAction("View Documents", this);
         VERIFY(connect(viewCollection, SIGNAL(triggered()), SLOT(ui_viewCollection())));
 
+        QAction *importCollection = new QAction(GuiRegistry::instance().importIcon(), "Import Collection...", this);
+        VERIFY(connect(importCollection, SIGNAL(triggered()), SLOT(ui_importCollection())));
+
+        QAction *exportCollection = new QAction(GuiRegistry::instance().exportIcon(), "Export Collection...", this);
+        VERIFY(connect(exportCollection, SIGNAL(triggered()), SLOT(ui_exportCollection())));
+
         BaseClass::_contextMenu->addAction(viewCollection);
+        BaseClass::_contextMenu->addSeparator();
+        BaseClass::_contextMenu->addAction(importCollection);
+        BaseClass::_contextMenu->addAction(exportCollection);
         BaseClass::_contextMenu->addSeparator();
         BaseClass::_contextMenu->addAction(addDocument);
         BaseClass::_contextMenu->addAction(updateDocument);
@@ -237,6 +248,20 @@ namespace Robomongo
         if (result == QDialog::Accepted) {
             server->insertDocuments(editor.bsonObj(), MongoNamespace(database->name(), _collection->name()) );
         }
+    }
+
+    void ExplorerCollectionTreeItem::ui_importCollection()
+    {
+        DataTransferDialog dialog(_collection->database(), QtUtils::toQString(_collection->name()),
+                                  DataTransferDirection::Import, treeWidget());
+        dialog.exec();
+    }
+
+    void ExplorerCollectionTreeItem::ui_exportCollection()
+    {
+        DataTransferDialog dialog(_collection->database(), QtUtils::toQString(_collection->name()),
+                                  DataTransferDirection::Export, treeWidget());
+        dialog.exec();
     }
 
     void ExplorerCollectionTreeItem::ui_removeDocument()

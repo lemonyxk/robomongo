@@ -412,36 +412,31 @@ namespace Robomongo
         return icon;
     }
 
-    const QFont &GuiRegistry::font() const
+    QFont GuiRegistry::defaultFont() const
     {
-        QString family = AppRegistry::instance().settingsManager()->textFontFamily();
-        if (family.isEmpty()) {
 #if defined(Q_OS_MAC)
-            family = "Monaco";
+        QFont textFont("Monaco", 12);
 #elif defined(Q_OS_UNIX)
-            family = "Monospace";
+        QFont textFont("Monospace");
 #elif defined(Q_OS_WIN)
-            family = "Courier";
+        QFont textFont("Courier", 10);
+#else
+        QFont textFont;
 #endif
-        }
-
-        int pointSize = AppRegistry::instance().settingsManager()->textFontPointSize();
-        if (pointSize < 1) {
-#if defined(Q_OS_MAC)
-            pointSize = 12;
-#elif defined(Q_OS_UNIX)
-            pointSize = -1;
-#elif defined(Q_OS_WIN)
-            pointSize = 10;
-#endif
-        }
-
-
-        static QFont textFont = QFont(family, pointSize);
 #if defined(Q_OS_UNIX)
         textFont.setFixedPitch(true);
 #endif
+        return textFont;
+    }
 
+    QFont GuiRegistry::font() const
+    {
+        QFont textFont = defaultFont();
+        const SettingsManager *settings = AppRegistry::instance().settingsManager();
+        if (!settings->textFontFamily().isEmpty())
+            textFont.setFamily(settings->textFontFamily());
+        if (settings->textFontPointSize() > 0)
+            textFont.setPointSize(settings->textFontPointSize());
         return textFont;
     }
 }

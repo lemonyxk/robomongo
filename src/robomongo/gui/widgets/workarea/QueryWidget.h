@@ -3,13 +3,13 @@
 #include <QWidget>
 #include <QDockWidget>
 #include <QCloseEvent>
+#include <QList>
 
 QT_BEGIN_NAMESPACE
 class QLabel;
-class QVBoxLayout;
 class QMainWindow;
 class QPushButton;
-class QFrame;
+class QSplitter;
 QT_END_NAMESPACE
 
 #include "robomongo/core/Core.h"
@@ -93,8 +93,9 @@ namespace Robomongo
         QLabel *_outputLabel;
         QDockWidget *_dock;
         QMainWindow *_outputWindow;
-        QFrame *_line;
-        QVBoxLayout *_mainLayout;
+        QSplitter *_splitter;
+        QWidget *_outputPanel;
+        QList<int> _dockedSizes;
 
         MongoShellExecResult _currentResult;
         bool _isTextChanged;

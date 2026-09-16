@@ -58,12 +58,24 @@ namespace Robomongo
         AutocompletionMode autocompletionMode {
             AppRegistry::instance().settingsManager()->autocompletionMode()
         };
-        if (autocompletionMode == AutocompleteNone)
+        if (autocompletionMode == AutocompleteNone || !_server->worker())
             return;
 
+        // Keep at most one request in the worker queue. Fast typing replaces
+        // the pending context instead of delaying later query executions.
+        if (_autocompleteInFlight) {
+            _pendingAutocomplete = prefix;
+            return;
+        }
+        _autocompleteInFlight = true;
         eventBus()->send(_server->worker(), 
             new AutocompleteRequest(this, prefix, autocompletionMode)
         );
+    }
+
+    void MongoShell::cancelAutocomplete()
+    {
+        _pendingAutocomplete.clear();
     }
 
     void MongoShell::stop()
@@ -129,6 +141,12 @@ namespace Robomongo
 
     void MongoShell::handle(AutocompleteResponse *event)
     {
+        _autocompleteInFlight = false;
+        std::string pending;
+        pending.swap(_pendingAutocomplete);
+        if (!pending.empty())
+            autocomplete(pending);
+
         if (event->isError()) {
             eventBus()->publish(new AutocompleteResponse(this, event->error()));
             return;

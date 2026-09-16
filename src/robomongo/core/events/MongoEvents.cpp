@@ -40,6 +40,8 @@ namespace Robomongo
     R_REGISTER_EVENT(ScriptExecutingEvent)
     R_REGISTER_EVENT(InsertDocumentRequest)
     R_REGISTER_EVENT(InsertDocumentResponse)
+    R_REGISTER_EVENT(UpdateFieldRequest)
+    R_REGISTER_EVENT(UpdateFieldResponse)
     R_REGISTER_EVENT(RemoveDocumentRequest)
     R_REGISTER_EVENT(RemoveDocumentResponse)
     R_REGISTER_EVENT(CreateDatabaseRequest)

@@ -25,25 +25,29 @@ namespace Robomongo
             _text(""),
             _line(0),
             _lineIndexLeft(0),
-            _lineIndexRight(0) {}
+            _lineIndexRight(0),
+            _automatic(false) {}
 
-        AutoCompletionInfo(const QString &text, int line, int lineIndexLeft, int lineIndexRight = 0) :
+        AutoCompletionInfo(const QString &text, int line, int lineIndexLeft, int lineIndexRight = 0, bool automatic = false) :
             _text(text),
             _line(line),
             _lineIndexLeft(lineIndexLeft),
-            _lineIndexRight(lineIndexRight) {}
+            _lineIndexRight(lineIndexRight),
+            _automatic(automatic) {}
 
         QString text() const { return _text; }
         int line() const { return _line; }
         int lineIndexLeft() const { return _lineIndexLeft; }
         int lineIndexRight() const { return _lineIndexRight; }
         bool isEmpty() const { return _text.isEmpty(); }
+        bool supportsAutomaticCompletion() const { return _automatic; }
 
     private:
         QString _text;      // text, for which we are trying to find completions
         int _line;          // line number in editor, where 'text' is located
         int _lineIndexLeft; // index of first char in the line, where 'text' is started
         int _lineIndexRight;// index of last char in the line, where 'text' is ended
+        bool _automatic;
     };
 
     class ScriptWidget : public QFrame
@@ -73,6 +77,7 @@ namespace Robomongo
         void setDisableTextAndCursorNotifications(bool value);
 
         void disableFixedHeight() const;
+        int preferredHeight() const;
 
     Q_SIGNALS:
         void textChanged();
@@ -83,12 +88,15 @@ namespace Robomongo
 
     private Q_SLOTS:
         void onTextChanged();
+        void onTextInsertedByUser();
         void onCursorPositionChanged(int line, int index);
         void onCompletionActivated(const QString&);
         void onAutocompletionTimeout();
+        void onFontSettingsChanged();
 
     private:
         void configureQueryText();
+        void requestAutocompletion(bool automatic);
 
         /**
          * @brief Calculates line height of text editor
@@ -110,7 +118,7 @@ namespace Robomongo
 
         QueryWidget *_parent;
 
-        bool _textChanged;
+        bool _completionTextChanged;
         bool _disableTextAndCursorNotifications;
     };
 

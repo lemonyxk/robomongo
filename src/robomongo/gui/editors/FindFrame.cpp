@@ -49,7 +49,7 @@ namespace Robomongo
         layout->addWidget(_prev);
         layout->addWidget(_caseSensitive);
 
-        _findPanel->setFixedHeight(HeightFindPanel);
+        _findPanel->setMinimumHeight(HeightFindPanel);
         _findPanel->setLayout(layout);
 
         QVBoxLayout *mainLayout = new QVBoxLayout();
@@ -64,6 +64,11 @@ namespace Robomongo
         VERIFY(connect(_close, SIGNAL(clicked()), _findPanel, SLOT(hide())));
         VERIFY(connect(_next, SIGNAL(clicked()), this, SLOT(goToNextElement())));
         VERIFY(connect(_prev, SIGNAL(clicked()), this, SLOT(goToPrevElement())));
+    }
+
+    int FindFrame::findPanelHeight() const
+    {
+        return qMax(static_cast<int>(HeightFindPanel), _findPanel->minimumSizeHint().height());
     }
 
     void FindFrame::wheelEvent(QWheelEvent *e)

@@ -182,13 +182,13 @@ async function runShellWorker() {
   const { ShellInstanceState, toShellResult, getShellApiType } = dependencyRequire('@mongosh/shell-api');
   const { ShellEvaluator } = dependencyRequire('@mongosh/shell-evaluator');
   const { EJSON } = dependencyRequire('bson');
+  const { createAutocomplete, LIMITS: completionLimits } = require('./mongosh-autocomplete');
   const parser = await import(require('node:url').pathToFileURL(dependencyRequire.resolve('@babel/parser')).href);
   let provider;
   let state;
   let context;
   let evaluator;
   let autocomplete;
-  let autocompleteWithoutCollections;
   let server = '';
   let displayBatchSize = 50;
   let prints = [];
@@ -214,11 +214,11 @@ async function runShellWorker() {
   };
 
   async function initialize(params) {
+    autocomplete?.dispose();
+    autocomplete = undefined;
     if (state) await state.close();
     else if (provider) await provider.close();
     cursors.clear();
-    autocomplete = undefined;
-    autocompleteWithoutCollections = undefined;
     const bus = new EventEmitter();
     // mongosh reports optional metadata failures here; keep them out of stdout.
     bus.on('mongosh:error', () => {});
@@ -250,6 +250,50 @@ async function runShellWorker() {
     // Store a credential-free server label for the UI.
     server = params.uri ? params.uri.replace(/\/\/[^/]*@/, '//').split('/').slice(0, 3).join('/') : '';
     if (params.database && !params.nodb) state.setDbFunc(state.currentDb.getSiblingDB(params.database));
+    // Capture this connection; background metadata from an old connection must
+    // never read through a newly assigned provider after reconnecting.
+    const completionProvider = provider;
+    autocomplete = createAutocomplete({ getDatabase: databaseName,
+      getGlobals: () => Object.getOwnPropertyNames(context),
+      isGlobalFunction: (name) => {
+        // Inspect data properties only; completion must not execute getters.
+        const descriptor = Object.getOwnPropertyDescriptor(context, name);
+        return descriptor && 'value' in descriptor && typeof descriptor.value === 'function';
+      },
+      loadFields: params.nodb ? undefined : async (database, collection, options) => {
+        const cursor = completionProvider.find(database, collection, {}, {
+          limit: options.limit, batchSize: 1, maxTimeMS: options.maxTimeMS,
+          timeoutMS: 300, signal: options.signal
+        });
+        const documents = [];
+        let sampleCost = 0;
+        try {
+          while (documents.length < completionLimits.documents && !options.signal.aborted) {
+            const document = await cursor.next();
+            if (document === null) break;
+            documents.push(document);
+            sampleCost += completionDocumentCost(document);
+            if (sampleCost >= 256 * 1024) break;
+          }
+          return documents;
+        } finally { await cursor.close().catch(() => {}); }
+      },
+      loadCollections: params.nodb ? undefined : async (database, options) => {
+        // A single bounded batch avoids eagerly collecting a database with
+        // thousands of namespaces into memory on the query editor's worker.
+        const result = await completionProvider.runCommand(database, {
+          listCollections: 1, nameOnly: true, authorizedCollections: true,
+          cursor: { batchSize: completionLimits.fields }, maxTimeMS: options.maxTimeMS
+        }, { signal: options.signal, timeoutMS: 300 });
+        const cursorId = result.cursor?.id;
+        if (cursorId && String(cursorId) !== '0') {
+          await completionProvider.runCommand(database, {
+            killCursors: '$cmd.listCollections', cursors: [cursorId]
+          }, { signal: options.signal, timeoutMS: 300 }).catch(() => {});
+        }
+        return (result.cursor?.firstBatch || []).map((entry) => entry.name);
+      }
+    });
     return { database: databaseName(), server, connected: !params.nodb, contextReset: false,
       versions: { node: process.version, architecture: process.arch,
         shellApi: packageVersion('@mongosh/shell-api'),
@@ -261,6 +305,26 @@ async function runShellWorker() {
     return evaluator.customEval((source, scope, file) => new vm.Script(source, {
       filename: file, displayErrors: true
     }).runInContext(scope), code, context, filename);
+  }
+
+  // Approximate a bounded sample budget without serializing large BSON values.
+  function completionDocumentCost(document) {
+    let remaining = completionLimits.nodes, cost = 0;
+    function visit(value, depth) {
+      if (remaining-- <= 0 || depth > completionLimits.depth || cost >= 256 * 1024) return;
+      if (typeof value === 'string') { cost += value.length * 2; return; }
+      if (!value || typeof value !== 'object') { cost += 8; return; }
+      if (value._bsontype) { cost += value.buffer?.byteLength || 32; return; }
+      for (const key in value) {
+        if (remaining <= 0 || cost >= 256 * 1024) break;
+        if (!Object.hasOwn(value, key)) continue;
+        cost += key.length * 2;
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor && 'value' in descriptor) visit(descriptor.value, depth + 1);
+      }
+    }
+    visit(document, 0);
+    return cost;
   }
 
   function statements(code) {
@@ -340,6 +404,7 @@ async function runShellWorker() {
     const size = pageSize(params.batchSize);
     if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('skip must be a non-negative integer');
     const offset = Math.max(0, skip - baseSkip);
+    const completionSample = [];
     while (!record.exhausted && record.documents.length < offset + size) {
       const document = await record.cursor.tryNext();
       if (document === null) {
@@ -347,7 +412,10 @@ async function runShellWorker() {
         break;
       }
       record.documents.push(canonical(document));
+      if (completionSample.length < completionLimits.documents) completionSample.push(document);
     }
+    if (record.queryInfo?.collection && !record.queryInfo.readOnly)
+      autocomplete?.warm(record.queryInfo.database, record.queryInfo.collection, completionSample);
     return { type: record.type, statement: record.statement, output: '',
       documents: record.documents.slice(offset, offset + size), cursorId: params.cursorId,
       hasMore: !record.exhausted || record.documents.length > offset + size,
@@ -392,36 +460,12 @@ async function runShellWorker() {
       return { database: databaseName(), server };
     }
     if (method === 'autocomplete') {
-      const code = String(params.code || '');
-      const includeCollections = params.includeCollectionNames !== false;
-      let complete = includeCollections ? autocomplete : autocompleteWithoutCollections;
-      if (!complete) {
-        // The TypeScript completion engine is expensive to load. Opening a
-        // collection only needs evaluation; create completers when typing starts.
-        const { initNewAutocompleter } = dependencyRequire('@mongosh/autocomplete');
-        complete = await initNewAutocompleter(includeCollections ? state : {
-          getAutocompletionContext: () => ({ ...state.getAutocompletionContext(),
-            collectionsForDatabase: async () => [] })
-        });
-        if (includeCollections) autocomplete = complete;
-        else autocompleteWithoutCollections = complete;
-      }
-      const [completions, replace] = await complete(code);
-      // The official query completer delegates global JavaScript identifiers to
-      // its host REPL. Supply that half from this persistent VM's own globals.
-      const identifier = code.match(/(?:^|[^\w$.])([\w$]+)$/);
-      if (identifier) {
-        const prefix = identifier[1];
-        for (const name of Object.getOwnPropertyNames(context)) {
-          if (name.startsWith(prefix)) completions.push(code.slice(0, -prefix.length) + name);
-        }
-      }
-      return { completions: [...new Set(completions)].sort(), replace };
+      return autocomplete.complete(params.code, { includeCollectionNames: params.includeCollectionNames !== false,
+        tokenOnly: params.tokenOnly === true, functionCalls: params.functionCalls === true, quoteKeys: params.quoteKeys === true });
     }
     if (method === 'cursorPage') return cursorPage(params);
     if (method === 'invalidateAutocomplete') {
-      autocomplete = undefined;
-      autocompleteWithoutCollections = undefined;
+      autocomplete.invalidate();
       return { invalidated: true };
     }
     if (method === 'ping') {
@@ -454,6 +498,14 @@ async function runShellWorker() {
   }
 
   parentPort.on('message', (request) => {
+    // Completion reads a cache snapshot only. It must not wait behind a slow
+    // evaluation or metadata request in the shell's serialized command queue.
+    if (request.method === 'autocomplete' || request.method === 'invalidateAutocomplete') {
+      void handle(request.method, request.params || {}).then(
+        (result) => parentPort.postMessage({ id: request.id, result }),
+        (error) => parentPort.postMessage({ id: request.id, error: errorObject(error) }));
+      return;
+    }
     queue = queue.then(async () => {
       try { parentPort.postMessage({ id: request.id, result: await handle(request.method, request.params || {}) }); }
       catch (error) { parentPort.postMessage({ id: request.id, error: errorObject(error) }); }

@@ -89,6 +89,85 @@ TEST_F(MongoClientWrites, SaveWithoutIdInsertsInsteadOfReplacingAnArbitraryDocum
     EXPECT_FALSE(connection.commands.front().hasField("writeConcern"));
 }
 
+TEST_F(MongoClientWrites, UpdateFieldSetsOneNestedValueWithoutReplacingOrUpserting)
+{
+    const mongo::BSONObj id = BSON("_id" << 5);
+    const mongo::BSONObj value = BSON("value" << static_cast<long long>(7));
+    client.updateField(id, "items.0.count", value, ns);
+
+    ASSERT_EQ(1U, connection.commands.size());
+    const mongo::BSONObj &command = connection.commands.front();
+    EXPECT_EQ("test_database", connection.database);
+    EXPECT_EQ("documents.with.dots", std::string(command.getStringField("update")));
+    EXPECT_FALSE(command.hasField("writeConcern"));
+    const auto updates = command.getField("updates").Array();
+    ASSERT_EQ(1U, updates.size());
+    const mongo::BSONObj update = updates.front().Obj();
+    EXPECT_EQ(0, id.woCompare(update.getObjectField("q")));
+    EXPECT_FALSE(update.getBoolField("upsert"));
+    EXPECT_FALSE(update.getBoolField("multi"));
+    const mongo::BSONObj changes = update.getObjectField("u");
+    ASSERT_EQ(1, changes.nFields());
+    const mongo::BSONObj fields = changes.getObjectField("$set");
+    ASSERT_EQ(1, fields.nFields());
+    EXPECT_EQ(mongo::NumberLong, fields.getField("items.0.count").type());
+    EXPECT_EQ(7, fields.getField("items.0.count").numberLong());
+}
+
+TEST_F(MongoClientWrites, UpdateFieldRejectsMissingIdsAndMultipleValuesBeforeWriting)
+{
+    const mongo::BSONObj value = BSON("value" << 7);
+    EXPECT_THROW(client.updateField(mongo::BSONObj(), "field", value, ns), std::runtime_error);
+    EXPECT_THROW(client.updateField(BSON("other" << 1), "field", value, ns), std::runtime_error);
+    EXPECT_THROW(client.updateField(BSON("_id" << 1 << "other" << 2), "field", value, ns), std::runtime_error);
+    EXPECT_THROW(client.updateField(BSON("_id" << 1), "field", mongo::BSONObj(), ns), std::runtime_error);
+    EXPECT_THROW(client.updateField(BSON("_id" << 1), "field", BSON("a" << 1 << "b" << 2), ns), std::runtime_error);
+    EXPECT_TRUE(connection.commands.empty());
+}
+
+TEST_F(MongoClientWrites, UpdateFieldRejectsImmutableAndOperatorPathsBeforeWriting)
+{
+    const std::vector<std::string> paths = {
+        "", "_id", "_id.child", ".field", "field.", "field..child", "$field",
+        "items.$.value", "items.$[].value", "items.$[item].value", std::string("a\0b", 3)
+    };
+    for (const auto &path : paths) {
+        SCOPED_TRACE(path);
+        EXPECT_THROW(client.updateField(BSON("_id" << 1), path, BSON("value" << 7), ns), std::runtime_error);
+    }
+    EXPECT_TRUE(connection.commands.empty());
+}
+
+TEST_F(MongoClientWrites, UpdateFieldReportsMissingDocumentWithoutInserting)
+{
+    connection.response = BSON("ok" << 1 << "n" << 0 << "nModified" << 0);
+    EXPECT_THROW(client.updateField(BSON("_id" << 1), "field", BSON("value" << 7), ns), std::runtime_error);
+    ASSERT_EQ(1U, connection.commands.size());
+    EXPECT_FALSE(connection.commands.front().hasField("insert"));
+}
+
+TEST_F(MongoClientWrites, UpdateFieldAcceptsAnUnchangedButMatchedValue)
+{
+    connection.response = BSON("ok" << 1 << "n" << 1 << "nModified" << 0);
+    EXPECT_NO_THROW(client.updateField(BSON("_id" << 1), "field", BSON("value" << 7), ns));
+}
+
+TEST_F(MongoClientWrites, UpdateFieldRequiresAMatchedCount)
+{
+    connection.response = BSON("ok" << 1);
+    EXPECT_THROW(client.updateField(BSON("_id" << 1), "field", BSON("value" << 7), ns), std::runtime_error);
+}
+
+TEST_F(MongoClientWrites, UpdateFieldReportsWriteAndWriteConcernErrors)
+{
+    connection.response = BSON("ok" << 1 << "n" << 1 << "writeConcernError"
+        << BSON("code" << 64 << "errmsg" << "replication acknowledgement failed"));
+    EXPECT_THROW(client.updateField(BSON("_id" << 1), "field", BSON("value" << 7), ns), std::runtime_error);
+    connection.response = BSON("ok" << 1 << "n" << 0 << "writeErrors"
+        << BSON_ARRAY(BSON("index" << 0 << "code" << 121 << "errmsg" << "validation failed")));
+    EXPECT_THROW(client.updateField(BSON("_id" << 1), "field", BSON("value" << 7), ns), std::runtime_error);
+}
+
 TEST_F(MongoClientWrites, DeletePreservesSingleAndMultipleDocumentSemantics)
 {
     mongo::BSONObj const filter = BSON("value" << "remove");

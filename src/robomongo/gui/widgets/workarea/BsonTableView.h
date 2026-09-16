@@ -13,11 +13,13 @@ namespace Robomongo
         explicit BsonTableView(MongoShell *shell, const MongoQueryInfo &queryInfo, QWidget *parent = 0);     
         virtual QModelIndex selectedIndex() const;
         virtual QModelIndexList selectedIndexes() const;
+        void applyAppearanceSettings();
 
     public Q_SLOTS:
         void showContextMenu(const QPoint &point);
 
     protected:
+        virtual void changeEvent(QEvent *event);
         virtual void keyPressEvent(QKeyEvent *event);
 
     private:

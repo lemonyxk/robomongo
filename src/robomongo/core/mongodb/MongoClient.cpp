@@ -17,8 +17,8 @@ namespace
         return message.empty() ? error.toString() : message;
     }
 
-    void runWriteCommand(mongo::DBClientBase *client, const std::string &database,
-                         const mongo::BSONObj &command)
+    mongo::BSONObj runWriteCommand(mongo::DBClientBase *client, const std::string &database,
+                                  const mongo::BSONObj &command)
     {
         // Let the server apply its default write concern. Forcing w:1 would
         // weaken a cluster's majority default, allowing an immediate majority
@@ -48,6 +48,8 @@ namespace
 
         if (!errors.empty())
             throw std::runtime_error(errors);
+
+        return result;
     }
 
     Robomongo::IndexInfo makeIndexInfoFromBsonObj(
@@ -527,6 +529,45 @@ namespace Robomongo
                  << "updates" << BSON_ARRAY(BSON("q" << bsonQuery << "u" << obj
                                                    << "upsert" << true << "multi" << false))
                  << "ordered" << true));
+    }
+
+    void MongoClient::updateField(const mongo::BSONObj &id, const std::string &fieldPath,
+                                  const mongo::BSONObj &value, const MongoNamespace &ns)
+    {
+        if (!ns.isValid() || ns.databaseName().empty() || ns.collectionName().empty())
+            throw std::runtime_error("A valid collection is required to update a field.");
+        if (id.nFields() != 1 || id.getField("_id").eoo())
+            throw std::runtime_error("The document must have an _id to update a field.");
+        if (value.nFields() != 1)
+            throw std::runtime_error("Exactly one field value is required.");
+        if (fieldPath.empty() || fieldPath == "_id" || fieldPath.compare(0, 4, "_id.") == 0
+            || fieldPath.find('\0') != std::string::npos)
+            throw std::runtime_error("This field cannot be edited.");
+
+        // Only ordinary field/index segments are accepted, never positional or
+        // operator paths. The UI additionally rejects literal dots in names.
+        std::size_t start = 0;
+        while (start <= fieldPath.size()) {
+            const std::size_t end = fieldPath.find('.', start);
+            if (start == fieldPath.size() || end == start || fieldPath[start] == '$')
+                throw std::runtime_error("This field path cannot be edited.");
+            if (end == std::string::npos)
+                break;
+            start = end + 1;
+        }
+
+        mongo::BSONObjBuilder fields;
+        fields.appendAs(value.firstElement(), fieldPath);
+        const mongo::BSONObj result = runWriteCommand(_dbclient, ns.databaseName(),
+            BSON("update" << ns.collectionName()
+                 << "updates" << BSON_ARRAY(BSON("q" << id << "u" << BSON("$set" << fields.obj())
+                                                   << "upsert" << false << "multi" << false))
+                 << "ordered" << true));
+
+        const mongo::BSONElement matched = result.getField("n");
+        if (!matched.isNumber() || matched.numberLong() != 1)
+            throw std::runtime_error("The document was not found or the update could not be confirmed. "
+                                     "Refresh the results and try again.");
     }
 
     void MongoClient::removeDocuments(const MongoNamespace &ns, mongo::Query query, bool justOne /*= true*/)

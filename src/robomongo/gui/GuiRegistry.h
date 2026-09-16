@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QIcon>
+#include <QFont>
 #include <QBrush>
 #include <QAbstractItemView>
 
@@ -94,7 +95,8 @@ namespace Robomongo
 
         const QBrush& typeBrush() const;
 
-        const QFont& font() const;
+        QFont defaultFont() const;
+        QFont font() const;
     private:
         /**
          * @brief Private, because this is singleton

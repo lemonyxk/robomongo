@@ -85,6 +85,9 @@ namespace Robomongo
         void insertDocument(const mongo::BSONObj &obj, const MongoNamespace &ns);
         void saveDocuments(const std::vector<mongo::BSONObj> &objCont, const MongoNamespace &ns);
         void saveDocument(const mongo::BSONObj &obj, const MongoNamespace &ns);
+        void updateField(const mongo::BSONObj &id, const std::string &fieldPath,
+                         const mongo::BSONObj &value, const MongoNamespace &ns,
+                         const QString &requestId);
         void removeDocuments(mongo::Query query, const MongoNamespace &ns, RemoveDocumentCount removeCount, 
                              int index = 0);
         float version() const{ return _version; }
@@ -108,11 +111,16 @@ namespace Robomongo
 
         void changeWorkerShellTimeout(int newTimeout);
 
+    Q_SIGNALS:
+        // Empty errorMessage means the field write was acknowledged successfully.
+        void fieldUpdated(const QString &requestId, const QString &errorMessage);
+
     protected Q_SLOTS:
         void handle(EstablishConnectionResponse *event);
         void handle(RefreshReplicaSetFolderResponse *event);
         void handle(LoadDatabaseNamesResponse *event);
         void handle(InsertDocumentResponse *event);
+        void handle(UpdateFieldResponse *event);
         void handle(RemoveDocumentResponse *event);
         void handle(CreateDatabaseResponse *event);
         void handle(DropDatabaseResponse *event);

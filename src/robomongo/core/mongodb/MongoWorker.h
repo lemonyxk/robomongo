@@ -94,6 +94,7 @@ namespace Robomongo
          * @brief Inserts document
          */
         void handle(InsertDocumentRequest *event);
+        void handle(UpdateFieldRequest *event);
 
         /**
          * @brief Remove documents

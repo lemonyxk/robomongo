@@ -26,6 +26,9 @@ set(SOURCES
     core/events/MongoEventsInfo.cpp
     core/bson/Bson.cpp
     core/mongodb/MongoConnection.cpp
+    core/mongodb/JsonDocumentReader.cpp
+    core/mongodb/DataTransfer.cpp
+    core/mongodb/ImportBatchWriter.cpp
 
     # Isolated Scope #2
     core/engine/ScriptEngine.cpp
@@ -66,7 +69,7 @@ set(SOURCES
     # Isolated scope #4
     gui/dialogs/PreferencesDialog.cpp
     gui/dialogs/ConnectionsDialog.cpp
-    gui/dialogs/ExportDialog.cpp
+    gui/dialogs/DataTransferDialog.cpp
     gui/dialogs/ChangeShellTimeoutDialog.cpp
 
     # Isolated scope #5
@@ -88,6 +91,7 @@ set(SOURCES
     gui/widgets/explorer/ExplorerUserTreeItem.cpp
     gui/widgets/explorer/ExplorerFunctionTreeItem.cpp
     gui/dialogs/DocumentTextEditor.cpp
+    gui/dialogs/FieldValueEditor.cpp
     gui/dialogs/FunctionTextEditor.cpp
 
     # Isolated scope #7
@@ -158,7 +162,7 @@ qt_generate_deploy_app_script(TARGET robomongo OUTPUT_SCRIPT deploy_script NO_UN
 install(SCRIPT ${deploy_script})
 install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_SOURCE_DIR}/COPYRIGHT" DESTINATION "${ROBO_RESOURCES}")
 install(PROGRAMS "${ROBOMONGO_NODE_EXECUTABLE}" DESTINATION "${ROBO_RESOURCES}/runtime")
-install(FILES "${ROBOMONGO_RUNTIME_DIR}/mongosh-bridge.js" "${ROBOMONGO_RUNTIME_DIR}/package.json" "${ROBOMONGO_RUNTIME_DIR}/package-lock.json" DESTINATION "${ROBO_RESOURCES}/runtime")
+install(FILES "${ROBOMONGO_RUNTIME_DIR}/mongosh-bridge.js" "${ROBOMONGO_RUNTIME_DIR}/mongosh-autocomplete.js" "${ROBOMONGO_RUNTIME_DIR}/package.json" "${ROBOMONGO_RUNTIME_DIR}/package-lock.json" DESTINATION "${ROBO_RESOURCES}/runtime")
 install(DIRECTORY "${ROBOMONGO_NODE_MODULES}" DESTINATION "${ROBO_RESOURCES}/runtime")
 install(FILES "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md" DESTINATION "${ROBO_RESOURCES}")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/licenses" DESTINATION "${ROBO_RESOURCES}")

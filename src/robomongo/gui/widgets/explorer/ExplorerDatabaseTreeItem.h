@@ -57,6 +57,8 @@ namespace Robomongo
         void ui_dbRepair();
         void ui_dbOpenShell();
         void ui_refreshDatabase();
+        void ui_importDatabase();
+        void ui_exportDatabase();
 
     private:
         void addCollectionItem(MongoCollection *collection);

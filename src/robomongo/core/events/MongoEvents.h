@@ -435,6 +435,39 @@ namespace Robomongo
     };
 
     /**
+     * @brief Update a single field without replacing the document.
+     */
+    struct UpdateFieldRequest : public Event
+    {
+        R_EVENT
+
+        UpdateFieldRequest(QObject *sender, const mongo::BSONObj &id,
+                           const std::string &fieldPath, const mongo::BSONObj &value,
+                           const MongoNamespace &ns, const QString &requestId) :
+            Event(sender), id(id.getOwned()), fieldPath(fieldPath), value(value.getOwned()),
+            ns(ns), requestId(requestId) {}
+
+        const mongo::BSONObj id;
+        const std::string fieldPath;
+        const mongo::BSONObj value;
+        const MongoNamespace ns;
+        const QString requestId;
+    };
+
+    struct UpdateFieldResponse : public Event
+    {
+        R_EVENT
+
+        UpdateFieldResponse(QObject *sender, const QString &requestId) :
+            Event(sender), requestId(requestId) {}
+
+        UpdateFieldResponse(QObject *sender, const QString &requestId, const EventError &error) :
+            Event(sender, error), requestId(requestId) {}
+
+        const QString requestId;
+    };
+
+    /**
      * @brief Remove Document
      */
 

@@ -7,11 +7,14 @@
 #include <QListView>
 #include <QLabel>
 #include <QTimer>
+#include <QSet>
 #include <Qsci/qscilexerjavascript.h>
 #include <Qsci/qsciscintilla.h>
 
 #include "robomongo/core/domain/MongoShell.h"
 #include "robomongo/core/domain/MongoServer.h"
+#include "robomongo/core/AppRegistry.h"
+#include "robomongo/core/settings/SettingsManager.h"
 #include "robomongo/core/settings/ConnectionSettings.h"
 #include "robomongo/core/utils/QtUtils.h"
 
@@ -24,29 +27,98 @@
 
 namespace
 {
-    bool isStopChar(const QChar &ch, bool direction)
+    bool isCompletionChar(char32_t ch)
     {
-        if (ch == '='  ||  ch == ';'  ||
-            ch == '('  ||  ch == ')'  ||
-            ch == '{'  ||  ch == '}'  ||
-            ch == '-'  ||  ch == '/'  ||
-            ch == '+'  ||  ch == '*'  ||
-            ch == '\r' ||  ch == '\n' ||
-            ch == ' ' ) {
-                return true;
-        }
-
-        if (direction) { // right direction
-            if (ch == '.')
-                return true;
-        }
-
-        return false;
+        return QChar::isLetterOrNumber(ch) || ch == '_' || ch == '$' || ch == '.';
     }
 
-    bool isForbiddenChar(const QChar &ch)
+    // Only used on the bounded completion window, never in the key event path.
+    // The surrounding quote determines how much of a partially edited key to
+    // replace: hyphens/spaces are part of the key, not replacement boundaries.
+    QChar completionQuote(const QString &code, bool *blocked = nullptr, bool *inObject = nullptr,
+                          int *openingIndex = nullptr)
     {
-        return ch == '\"' ||  ch == '\'';
+        QChar quote, previous;
+        int quoteStart = -1;
+        QString delimiters;
+        bool lineComment = false, blockComment = false;
+        bool regex = false, characterClass = false;
+        for (int i = 0; i < code.size(); ++i) {
+            const QChar ch = code.at(i);
+            const QChar next = i + 1 < code.size() ? code.at(i + 1) : QChar();
+            if (lineComment) {
+                if (ch == '\n') lineComment = false;
+                continue;
+            }
+            if (blockComment) {
+                if (ch == '*' && next == '/') { blockComment = false; ++i; }
+                continue;
+            }
+            if (!quote.isNull()) {
+                if (ch == '\\') { ++i; continue; }
+                if (ch == quote) { quote = QChar(); quoteStart = -1; previous = ')'; }
+                continue;
+            }
+            if (regex) {
+                if (ch == '\\') { ++i; continue; }
+                if (ch == '[') characterClass = true;
+                if (ch == ']') characterClass = false;
+                if (ch == '/' && !characterClass) { regex = false; previous = ')'; }
+                continue;
+            }
+            if (ch == '/' && next == '/') { lineComment = true; ++i; continue; }
+            if (ch == '/' && next == '*') { blockComment = true; ++i; continue; }
+            if (ch == '/' && (previous.isNull() || QStringLiteral("([{:,=;!").contains(previous))) {
+                regex = true;
+                continue;
+            }
+            if (ch == '\'' || ch == '"' || ch == '`') { quote = ch; quoteStart = i; continue; }
+            if (ch == '{' || ch == '(' || ch == '[')
+                delimiters.append(ch);
+            else if ((ch == '}' || ch == ')' || ch == ']') && !delimiters.isEmpty())
+                delimiters.chop(1);
+            if (!ch.isSpace()) previous = ch;
+        }
+        if (blocked)
+            *blocked = lineComment || blockComment || regex || quote == '`';
+        if (inObject)
+            *inObject = !delimiters.isEmpty() && delimiters.back() == '{';
+        if (openingIndex)
+            *openingIndex = quote == '\'' || quote == '"' ? quoteStart : -1;
+        return quote == '\'' || quote == '"' ? quote : QChar();
+    }
+
+    bool automaticCompletionContext(const QString &code, QChar quote, bool blocked, bool inObject)
+    {
+        if (blocked)
+            return false;
+        // The runtime distinguishes field/collection quotes from ordinary
+        // string values; only the former receive contextual suggestions.
+        if (!quote.isNull())
+            return true;
+        int start = code.size();
+        bool memberAccess = false;
+        while (start > 0) {
+            const QChar last = code.at(start - 1);
+            int width = 1;
+            char32_t character = last.unicode();
+            if (last.isLowSurrogate() && start > 1 && code.at(start - 2).isHighSurrogate()) {
+                width = 2;
+                character = QChar::surrogateToUcs4(code.at(start - 2).unicode(), last.unicode());
+            }
+            if (!isCompletionChar(character))
+                break;
+            memberAccess = memberAccess || character == '.';
+            start -= width;
+        }
+        if (memberAccess)
+            return true;
+        while (start > 0 && code.at(start - 1).isSpace())
+            --start;
+        if (start == 0)
+            return false;
+        const QChar boundary = code.at(start - 1);
+        return boundary == '.' || (inObject && (boundary == '{' || boundary == ','));
     }
 }
 
@@ -55,7 +127,7 @@ namespace Robomongo
     ScriptWidget::ScriptWidget(MongoShell *shell, QueryWidget *parent) :
         _shell(shell),
         _parent(parent),
-        _textChanged(false),
+        _completionTextChanged(false),
         _disableTextAndCursorNotifications(false)
     {
         setObjectName("scriptWidget");
@@ -67,7 +139,7 @@ namespace Robomongo
 
         QVBoxLayout *layout = new QVBoxLayout;
         layout->setSpacing(0);
-        layout->setContentsMargins(12, 0, 12, 10);
+        layout->setContentsMargins(8, 0, 8, 6);
         layout->addWidget(_topStatusBar, 0, Qt::AlignTop);
         layout->addWidget(_queryText);
         setLayout(layout);
@@ -84,6 +156,7 @@ namespace Robomongo
         VERIFY(connect(_completer, SIGNAL(activated(const QString &)), this, SLOT(onCompletionActivated(const QString&))));
 
         _autocompletionTimer = new QTimer(this);
+        _autocompletionTimer->setObjectName("queryAutocompletionTimer");
         _autocompletionTimer->setSingleShot(true);
         _autocompletionTimer->setInterval(120);
         VERIFY(connect(_autocompletionTimer, SIGNAL(timeout()), this, SLOT(onAutocompletionTimeout())));
@@ -95,14 +168,19 @@ namespace Robomongo
         configureQueryText();
         _queryText->sciScintilla()->setFocus();
         _queryText->sciScintilla()->installEventFilter(this);
+        _queryText->sciScintilla()->viewport()->installEventFilter(this);
         _completer->popup()->installEventFilter(this);
 
         setText(QtUtils::toQString(shell->query()));
+        ui_queryLinesCountChanged();
         setTextCursor(shell->cursor());
     }
 
     bool ScriptWidget::eventFilter(QObject *obj, QEvent *event)
     {
+        if ((obj == _queryText->sciScintilla() || obj == _queryText->sciScintilla()->viewport()) &&
+                event->type() == QEvent::MouseButtonPress)
+            hideAutocompletion();
         // QCompleter forwards popup keys directly to QWidget::event(), which
         // bypasses the editor's event filters. Cancel pending responses here
         // so an Escape-dismissed popup cannot reopen from a late reply.
@@ -117,6 +195,26 @@ namespace Robomongo
         if (obj == _queryText->sciScintilla()) {
             if (event->type() == QEvent::KeyPress) {
                 QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+
+                // Cancel on explicit navigation before Scintilla's deferred
+                // cursor notification can be mistaken for the preceding edit.
+                switch (keyEvent->key()) {
+                case Qt::Key_Up:
+                case Qt::Key_Down:
+                case Qt::Key_PageUp:
+                case Qt::Key_PageDown:
+                    if (!_completer->popup()->isVisible())
+                        hideAutocompletion();
+                    break;
+                case Qt::Key_Left:
+                case Qt::Key_Right:
+                case Qt::Key_Home:
+                case Qt::Key_End:
+                    hideAutocompletion();
+                    break;
+                default:
+                    break;
+                }
 
                 if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter
                         || keyEvent->key() == Qt::Key_Tab) {
@@ -194,6 +292,10 @@ namespace Robomongo
 
     void ScriptWidget::showAutocompletion(const QStringList &list, const QString &prefix)
     {
+        if (AppRegistry::instance().settingsManager()->autocompletionMode() == AutocompleteNone) {
+            hideAutocompletion();
+            return;
+        }
         RoboScintilla *scin = _queryText->sciScintilla();
         if (!scin->hasFocus() || _currentAutoCompletionInfo.isEmpty() ||
                 prefix != _currentAutoCompletionInfo.text())
@@ -207,16 +309,32 @@ namespace Robomongo
                 current.lineIndexRight() != _currentAutoCompletionInfo.lineIndexRight())
             return;
 
-        if (list.isEmpty()) {
+        // The runtime receives bounded context and returns only insertion
+        // tokens, avoiding a repeated 32KB query prefix for every candidate.
+        int row = 0, column = 0;
+        scin->getCursorPosition(&row, &column);
+        const int tokenLength = column - current.lineIndexLeft();
+        const auto lineCharacters = scin->text(row).toUcs4();
+        const QString token = QString::fromUcs4(lineCharacters.constData() + current.lineIndexLeft(), tokenLength);
+        QStringList suggestions;
+        QSet<QString> seen;
+        for (const QString &suggestion : list) {
+            if (suggestion.isEmpty() || suggestion.size() > 512 ||
+                    suggestion.contains('\n') || seen.contains(suggestion))
+                continue;
+            suggestions.append(suggestion);
+            seen.insert(suggestion);
+            if (suggestions.size() >= 200)
+                break;
+        }
+        if (suggestions.isEmpty()) {
             hideAutocompletion();
             return;
         }
 
-        // do not show single autocompletion which is identical to existing prefix
-        // or if it identical to prefix + '('.
-        if (list.count() == 1) {
-            if (list.at(0) == prefix ||
-                list.at(0) == (prefix + "(")) {
+        // A lone candidate identical to the existing token adds no information.
+        if (suggestions.count() == 1) {
+            if (suggestions.at(0) == token) {
                 hideAutocompletion();
                 return;
             }
@@ -224,8 +342,8 @@ namespace Robomongo
 
         // update list of completions
         QStringListModel * model = static_cast<QStringListModel *>(_completer->model());
-        if (model->stringList() != list)
-            model->setStringList(list);
+        if (model->stringList() != suggestions)
+            model->setStringList(suggestions);
 
         const int position = scin->positionFromLineIndex(current.line(), current.lineIndexLeft());
         const int x = scin->SendScintilla(QsciScintilla::SCI_POINTXFROMPOSITION, 0, position);
@@ -241,10 +359,21 @@ namespace Robomongo
 
     void ScriptWidget::showAutocompletion()
     {
+        requestAutocompletion(false);
+    }
+
+    void ScriptWidget::requestAutocompletion(bool automatic)
+    {
+        _completionTextChanged = false;
         _autocompletionTimer->stop();
+        if (AppRegistry::instance().settingsManager()->autocompletionMode() == AutocompleteNone) {
+            hideAutocompletion();
+            return;
+        }
         _currentAutoCompletionInfo = sanitizeForAutocompletion();
 
-        if (_currentAutoCompletionInfo.isEmpty()) {
+        if (_currentAutoCompletionInfo.isEmpty() ||
+                (automatic && !_currentAutoCompletionInfo.supportsAutomaticCompletion())) {
             hideAutocompletion();
             return;
         }
@@ -254,8 +383,10 @@ namespace Robomongo
 
     void ScriptWidget::hideAutocompletion()
     {
+        _completionTextChanged = false;
         _autocompletionTimer->stop();
         _currentAutoCompletionInfo = AutoCompletionInfo();
+        _shell->cancelAutocomplete();
         _completer->popup()->hide();
         RoboScintilla *scin = static_cast<RoboScintilla*>(_queryText->sciScintilla());
         scin->setIgnoreEnterKey(false);
@@ -266,7 +397,6 @@ namespace Robomongo
     {
         _disableTextAndCursorNotifications = value;
         if (value) {
-            _textChanged = false;
             hideAutocompletion();
         }
     }
@@ -276,51 +406,63 @@ namespace Robomongo
         if (_disableTextAndCursorNotifications || !_queryText->sciScintilla()->hasFocus())
             return;
 
-        int row = 0;
-        int column = 0;
-        _queryText->sciScintilla()->getCursorPosition(&row, &column);
-        // Avoid copying minified documents on every keystroke. Explicit
-        // completion remains available for unusually long lines.
-        if (_queryText->sciScintilla()->SendScintilla(QsciScintilla::SCI_LINELENGTH, row) <= 65536)
-            showAutocompletion();
+        RoboScintilla *scin = _queryText->sciScintilla();
+        const int position = scin->SendScintilla(QsciScintilla::SCI_GETCURRENTPOS);
+        const int row = scin->SendScintilla(QsciScintilla::SCI_LINEFROMPOSITION, position);
+        // Do not copy unusually large/minified lines on the UI thread.
+        if (scin->SendScintilla(QsciScintilla::SCI_LINELENGTH, row) <= 65536)
+            requestAutocompletion(true);
     }
 
     void ScriptWidget::disableFixedHeight() const
     {
         _queryText->setMinimumSize(0, 0);
         _queryText->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        _queryText->sciScintilla()->setMinimumSize(0, 0);
+        _queryText->sciScintilla()->setMinimumSize(0, editorHeight(1));
         _queryText->sciScintilla()->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         _queryText->sciScintilla()->setFocus();
     }
 
+    int ScriptWidget::preferredHeight() const
+    {
+        const int lines = qBound(1, _queryText->sciScintilla()->lines(), 18);
+        return minimumSizeHint().height() + (lines - 1) * lineHeight();
+    }
+
     void ScriptWidget::ui_queryLinesCountChanged()
     {
-        // Set fixed size only if output widget is docked
-        if (_parent->outputWindowDocked())
-        {
-            const int lines = qBound(1, _queryText->sciScintilla()->lines(), 18);
-            const int editorTotalHeight = editorHeight(lines);
-            if (_queryText->sciScintilla()->minimumHeight() == editorTotalHeight &&
-                    _queryText->sciScintilla()->maximumHeight() == editorTotalHeight &&
-                    _queryText->minimumHeight() == editorTotalHeight &&
-                    _queryText->maximumHeight() == editorTotalHeight + FindFrame::HeightFindPanel)
-                return;
+        // Keep the query editor height in sync with the number of lines.
+        // Previously only the minimum height was updated while docked, which
+        // caused multiline queries to remain visually fixed at one line.
+        const int lines = qBound(1, _queryText->sciScintilla()->lines(), 18);
+        const int editorTotalHeight = editorHeight(lines);
 
-            _queryText->sciScintilla()->setFixedHeight(editorTotalHeight);
-            _queryText->setMinimumHeight(editorTotalHeight);
-            _queryText->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
-            _queryText->setMaximumHeight(editorTotalHeight + FindFrame::HeightFindPanel);
-        }
+        _queryText->sciScintilla()->setMinimumHeight(editorTotalHeight);
+        _queryText->sciScintilla()->setMaximumHeight(editorTotalHeight);
+        _queryText->setMinimumHeight(editorTotalHeight);
+        _queryText->setMaximumHeight(editorTotalHeight);
+    }
+
+    void ScriptWidget::onFontSettingsChanged()
+    {
+        hideAutocompletion();
+        _completer->popup()->setFont(GuiRegistry::instance().font());
+        ui_queryLinesCountChanged();
     }
 
     void ScriptWidget::onTextChanged()
     {
         emit textChanged();
-        if (!_disableTextAndCursorNotifications) {
+        if (!_disableTextAndCursorNotifications)
             hideAutocompletion();
-            _textChanged = true;
-        }
+    }
+
+    void ScriptWidget::onTextInsertedByUser()
+    {
+        if (_disableTextAndCursorNotifications)
+            return;
+        _completionTextChanged = true;
+        _autocompletionTimer->start();
     }
 
     void ScriptWidget::onCursorPositionChanged(int, int)
@@ -328,12 +470,13 @@ namespace Robomongo
         if (_disableTextAndCursorNotifications)
             return;
 
-        if (_textChanged) {
-            _autocompletionTimer->start();
-            _textChanged = false;
-        } else {
-            hideAutocompletion();
+        // Scintilla reports the caret advance caused by an edit during a later
+        // UI update. Keep that edit's timer; navigation alone must not arm one.
+        if (_completionTextChanged) {
+            _completionTextChanged = false;
+            return;
         }
+        hideAutocompletion();
     }
 
     void ScriptWidget::onCompletionActivated(const QString &text)
@@ -341,20 +484,67 @@ namespace Robomongo
         if (_currentAutoCompletionInfo.isEmpty())
             return;
 
+        const AutoCompletionInfo current = sanitizeForAutocompletion();
+        if (current.text() != _currentAutoCompletionInfo.text() ||
+                current.line() != _currentAutoCompletionInfo.line() ||
+                current.lineIndexLeft() != _currentAutoCompletionInfo.lineIndexLeft() ||
+                current.lineIndexRight() != _currentAutoCompletionInfo.lineIndexRight()) {
+            hideAutocompletion();
+            return;
+        }
+
         int row = _currentAutoCompletionInfo.line();
         int colLeft = _currentAutoCompletionInfo.lineIndexLeft();
         int colRight = _currentAutoCompletionInfo.lineIndexRight();
-        QString line = _queryText->sciScintilla()->text(row);
+        const auto line = _queryText->sciScintilla()->text(row).toUcs4();
 
         int selectionIndexRight = colRight + 1;
+        QString insertion = text;
+        int caretColumn = -1;
+        int quoteStart = -1;
+        const QChar quote = completionQuote(current.text(), nullptr, nullptr, &quoteStart);
+        const bool quotedLiteral = insertion.size() >= 2 &&
+            insertion.front() == '"' && insertion.back() == '"';
+        const bool function = quote.isNull() &&
+            (insertion.endsWith('(') || insertion.endsWith(QStringLiteral("()")));
 
-        // overwrite open parenthesis, if it already exists in text
-        if (text.endsWith('(')) {
-            if (line.length() > colRight + 1) {
-                if (line.at(colRight + 1) == '(') {
-                    ++selectionIndexRight;
-                }
+        if (quotedLiteral && !quote.isNull() && quoteStart >= 0) {
+            // The runtime sends a complete JSON string for field/collection
+            // candidates. Replace the whole existing literal, including any
+            // already typed spaces or escapes and either style of quote.
+            int cursorRow = 0, cursorColumn = 0;
+            _queryText->sciScintilla()->getCursorPosition(&cursorRow, &cursorColumn);
+            const int openingColumn = cursorColumn -
+                static_cast<int>(current.text().mid(quoteStart).toUcs4().size());
+            if (openingColumn < 0 || cursorRow != row ||
+                    line.at(openingColumn) != quote.unicode()) {
+                hideAutocompletion();
+                return;
             }
+            colLeft = openingColumn;
+            if (selectionIndexRight < line.size() &&
+                    line.at(selectionIndexRight) == quote.unicode())
+                ++selectionIndexRight;
+        } else if (function) {
+            insertion.chop(insertion.endsWith(QStringLiteral("()")) ? 2 : 1);
+            caretColumn = colLeft + static_cast<int>(insertion.toUcs4().size()) + 1;
+            const bool existingOpening = selectionIndexRight < line.size() &&
+                line.at(selectionIndexRight) == '(';
+            const bool emptyOpening = existingOpening &&
+                (selectionIndexRight + 1 == line.size() ||
+                 line.at(selectionIndexRight + 1) == '\n' ||
+                 line.at(selectionIndexRight + 1) == '\r');
+            // Reuse a call already present after the token. Its arguments and
+            // closing parenthesis remain untouched; the caret enters the call.
+            if (!existingOpening || emptyOpening) {
+                insertion += QStringLiteral("()");
+                if (emptyOpening)
+                    ++selectionIndexRight;
+            }
+        } else if ((text.endsWith('\'') || text.endsWith('"')) &&
+                   selectionIndexRight < line.size() &&
+                   line.at(selectionIndexRight) == text.back().unicode()) {
+            ++selectionIndexRight;
         }
 
         const bool notificationsDisabled = _disableTextAndCursorNotifications;
@@ -362,7 +552,9 @@ namespace Robomongo
 
         _queryText->sciScintilla()->beginUndoAction();
         _queryText->sciScintilla()->setSelection(row, colLeft, row, selectionIndexRight);
-        _queryText->sciScintilla()->replaceSelectedText(text);
+        _queryText->sciScintilla()->replaceSelectedText(insertion);
+        if (caretColumn >= 0)
+            _queryText->sciScintilla()->setCursorPosition(row, caretColumn);
         _queryText->sciScintilla()->endUndoAction();
 
         setDisableTextAndCursorNotifications(notificationsDisabled);
@@ -374,20 +566,24 @@ namespace Robomongo
     void ScriptWidget::configureQueryText()
     {
         QsciLexerJavaScript *javaScriptLexer = new JSLexer(this);
-        javaScriptLexer->setFont(GuiRegistry::instance().font());
+        _queryText->sciScintilla()->setLexer(javaScriptLexer);
+        _queryText->sciScintilla()->applyFontSettings();
         int height = editorHeight(1);
         _queryText->sciScintilla()->setMinimumHeight(height);
-        _queryText->sciScintilla()->setFixedHeight(height);
+        _queryText->sciScintilla()->setMaximumHeight(QWIDGETSIZE_MAX);
         _queryText->sciScintilla()->setAppropriateBraceMatching();
-        _queryText->sciScintilla()->setFont(GuiRegistry::instance().font());
-        _queryText->sciScintilla()->setLexer(javaScriptLexer);
+        _queryText->sciScintilla()->setAutoPairingEnabled(true);
 
         _queryText->sciScintilla()->setObjectName("queryEditor");
         _queryText->sciScintilla()->setStyleSheet(
             "QFrame#queryEditor {background-color: #ffffff; border: 1px solid #dce3ec; border-radius: 5px;}"
             "QFrame#queryEditor:focus {border-color: #247c68;}");
         VERIFY(connect(_queryText->sciScintilla(), SIGNAL(linesChanged()), SLOT(ui_queryLinesCountChanged())));
+        VERIFY(connect(_queryText->sciScintilla(), SIGNAL(fontSettingsChanged()), SLOT(onFontSettingsChanged())));
         VERIFY(connect(_queryText->sciScintilla(), SIGNAL(textChanged()), SLOT(onTextChanged())));
+        VERIFY(connect(_queryText->sciScintilla(), SIGNAL(textInsertedByUser()), SLOT(onTextInsertedByUser())));
+        VERIFY(connect(_queryText->sciScintilla(), &RoboScintilla::completionCancelled,
+                       this, &ScriptWidget::hideAutocompletion));
         VERIFY(connect(_queryText->sciScintilla(), SIGNAL(cursorPositionChanged(int, int)), SLOT(onCursorPositionChanged(int, int))));
     }
 
@@ -409,45 +605,55 @@ namespace Robomongo
 
     AutoCompletionInfo ScriptWidget::sanitizeForAutocompletion()
     {
+        RoboScintilla *scin = _queryText->sciScintilla();
+        if (scin->hasSelectedText())
+            return AutoCompletionInfo();
         int row = 0;
         int col = 0;
-        _queryText->sciScintilla()->getCursorPosition(&row, &col);
-        QString line = _queryText->sciScintilla()->text(row);
+        const int position = scin->SendScintilla(QsciScintilla::SCI_GETCURRENTPOS);
+        row = scin->SendScintilla(QsciScintilla::SCI_LINEFROMPOSITION, position);
+        if (scin->SendScintilla(QsciScintilla::SCI_LINELENGTH, row) > 65536)
+            return AutoCompletionInfo();
+        scin->getCursorPosition(&row, &col);
+        // QScintilla's line indexes count Unicode code points, while QString
+        // indexes UTF-16 units. Keep replacements correct after emoji as well.
+        const auto line = scin->text(row).toUcs4();
         col = qBound(0, col, static_cast<int>(line.length()));
+        int left = col;
+        while (left > 0 && isCompletionChar(line.at(left - 1)))
+            --left;
+        int right = col;
+        while (right < line.size() && isCompletionChar(line.at(right)))
+            ++right;
 
-        int leftStop = -1;
-        for (int i = col - 1; i >= 0; --i) {
-            const QChar ch = line.at(i);
-
-            if (isForbiddenChar(ch))
+        // QScintilla positions are UTF-8 byte offsets. Read only a bounded
+        // context window; never materialize the whole editor for completion.
+        const int windowStart = qMax(0, position - 32768);
+        QByteArray bytes = scin->bytes(windowStart, position);
+        if (bytes.endsWith('\0'))
+            bytes.chop(1);
+        if (windowStart > 0) {
+            const int newline = bytes.indexOf('\n');
+            if (newline < 0)
                 return AutoCompletionInfo();
-
-            if (isStopChar(ch, false)) {
-                leftStop = i;
-                break;
+            bytes.remove(0, newline + 1);
+        }
+        const QString context = QString::fromUtf8(bytes);
+        if (context.size() < col - left)
+            return AutoCompletionInfo();
+        bool blocked = false, inObject = false;
+        const QChar quote = completionQuote(context, &blocked, &inObject);
+        if (!quote.isNull()) {
+            right = col;
+            while (right < line.size() && line.at(right) != quote.unicode() &&
+                    line.at(right) != '\n' && line.at(right) != '\r') {
+                if (line.at(right) == '\\' && right + 1 < line.size())
+                    ++right;
+                ++right;
             }
         }
-
-        int rightStop = line.length();
-        for (int i = col; i < line.length(); ++i) {
-            const QChar ch = line.at(i);
-
-            if (isForbiddenChar(ch))
-                return AutoCompletionInfo();
-
-            if (isStopChar(ch, true)) {
-                rightStop = i;
-                break;
-            }
-        }
-
-        leftStop = leftStop + 1;
-        rightStop = rightStop - 1;
-        //int len = ondemand ? col - leftStop : rightStop - leftStop + 1;
-        int len = col - leftStop;
-
-        QString final = line.mid(leftStop, len);
-        return AutoCompletionInfo(final, row, leftStop, rightStop);
+        return AutoCompletionInfo(context, row, left, right - 1,
+            automaticCompletionContext(context, quote, blocked, inObject));
     }
 
     TopStatusBar::TopStatusBar(const std::string &connectionName, const std::string &serverName, const std::string &dbName)

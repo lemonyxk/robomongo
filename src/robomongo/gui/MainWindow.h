@@ -119,7 +119,7 @@ namespace Robomongo
 
     private:
         void updateConnectionsMenu();
-        void createDatabaseExplorer();
+        void createDatabaseExplorer(QWidget *workspaceTools);
         void createTabs();
         void createStylesMenu();
         void createStatusBar();

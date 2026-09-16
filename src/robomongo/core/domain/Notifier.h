@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QModelIndex>
+#include <QPointer>
 
 #include "robomongo/core/domain/MongoQueryInfo.h"
 
@@ -14,6 +15,7 @@ namespace Robomongo
     class MainWindow;
     class MongoShell;
     class BsonTreeItem;
+    class FieldValueEditor;
     class InsertDocumentResponse;
     struct RemoveDocumentResponse;
 
@@ -48,6 +50,7 @@ namespace Robomongo
 
         void deleteDocuments(std::vector<BsonTreeItem*> const& items, bool force);
         void handleDeleteCommand();
+        bool editField(const QModelIndex &index);
 
     public Q_SLOTS:
         void onDeleteDocument();
@@ -84,5 +87,6 @@ namespace Robomongo
 
         MongoShell *_shell;
         INotifierObserver *const _observer;
+        QPointer<FieldValueEditor> _fieldEditor;
     };
 }

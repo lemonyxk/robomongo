@@ -24,7 +24,7 @@ namespace Robomongo
         _logTextEdit->setUndoRedoEnabled(false);
         _logTextEdit->setMaximumBlockCount(10000);
         _logTextEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
-        _logTextEdit->setFont(GuiRegistry::instance().font());
+        applyFontSettings();
         _logTextEdit->setFrameShape(QFrame::NoFrame);
         _logTextEdit->setToolTip(tr("Recent log output (up to 10,000 lines)"));
         _logTextEdit->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -37,6 +37,14 @@ namespace Robomongo
         _clear = new QAction("Clear All", this);
         VERIFY(connect(_clear, SIGNAL(triggered()), this, SLOT(clearMessages())));
         setLayout(hlayout);      
+    }
+
+    void LogWidget::applyFontSettings()
+    {
+        const QFont logFont = GuiRegistry::instance().font();
+        _logTextEdit->setFont(logFont);
+        _logTextEdit->document()->setDefaultFont(logFont);
+        _logTextEdit->viewport()->update();
     }
 
     void LogWidget::showContextMenu(const QPoint &pt)

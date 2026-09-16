@@ -17,6 +17,7 @@
 #include <QLabel>
 #include <QStatusBar>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QSettings>
 #include <QSystemTrayIcon>
 #include <QNetworkAccessManager>
@@ -45,7 +46,6 @@
 #include "robomongo/gui/dialogs/ConnectionsDialog.h"
 #include "robomongo/gui/dialogs/AboutDialog.h"
 #include "robomongo/gui/dialogs/PreferencesDialog.h"
-#include "robomongo/gui/dialogs/ExportDialog.h"
 #include "robomongo/gui/dialogs/ChangeShellTimeoutDialog.h"
 #include "robomongo/gui/GuiRegistry.h"
 #include "robomongo/gui/AppStyle.h"
@@ -292,8 +292,14 @@ namespace Robomongo
 
     /*** View menu ***/
         _viewMenu = menuBar()->addMenu("View");
+        QWidget *workspaceTools = new QWidget(this);
+        workspaceTools->setObjectName("workspaceTools");
+        workspaceTools->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto *toolsLayout = new QHBoxLayout(workspaceTools);
+        toolsLayout->setContentsMargins(0, 0, 0, 0);
+        toolsLayout->setSpacing(2);
         // adds option to toggle Explorer and Logs panels
-        createDatabaseExplorer();
+        createDatabaseExplorer(workspaceTools);
         _toolbarsMenu = _viewMenu->addMenu(tr("Toolbars"));
         // adds Themes submenu
         createStylesMenu();
@@ -446,7 +452,8 @@ namespace Robomongo
 
         QAction *preferencesAction = new QAction("Preferences", this);
         VERIFY(connect(preferencesAction, SIGNAL(triggered()), this, SLOT(openPreferences())));
-        preferencesAction->setVisible(false);
+        preferencesAction->setMenuRole(QAction::PreferencesRole);
+        preferencesAction->setShortcut(QKeySequence::Preferences);
         optionsMenu->addAction(preferencesAction);
 
         QActionGroup *uuidEncodingGroup = new QActionGroup(this);
@@ -526,38 +533,58 @@ namespace Robomongo
         QMenu *helpMenu = menuBar()->addMenu("Help");
         helpMenu->addAction(aboutRobomongoAction);
 
-        // Toolbar
-        QToolBar *connectToolBar = new QToolBar(tr("Connections Toolbar"), this);
+        // Controls belong to the left explorer column, above its tree.
+        QToolBar *connectToolBar = new QToolBar(tr("Connections Toolbar"), workspaceTools);
         connectToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
         connectToolBar->addAction(connectButtonAction);
         connectToolBar->setShortcutEnabled(1, true);
         connectToolBar->setMovable(false);
+        connectToolBar->setAllowedAreas(Qt::NoToolBarArea);
+        connectToolBar->setFloatable(false);
+        connectToolBar->setOrientation(Qt::Horizontal);
+        connectToolBar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        connectToolBar->setObjectName("workspaceConnectionsToolbar");
         connectToolBar->setVisible(true /*toolbarsSettings["connect"].toBool()*/);
         _toolbarsMenu->addAction(connectToolBar->toggleViewAction());
         VERIFY(connect(connectToolBar->toggleViewAction(), SIGNAL(triggered(bool)), this, SLOT(onConnectToolbarVisibilityChanged(bool))));
         setToolBarIconSize(connectToolBar);
-        addToolBar(connectToolBar);
+        toolsLayout->addWidget(connectToolBar);
 
-        QToolBar *openSaveToolBar = new QToolBar(tr("Open/Save Toolbar"), this);
+        QToolBar *openSaveToolBar = new QToolBar(tr("Open/Save Toolbar"), workspaceTools);
         openSaveToolBar->addAction(_openAction);
         openSaveToolBar->addAction(_saveAction);
         openSaveToolBar->setMovable(false);
+        openSaveToolBar->setAllowedAreas(Qt::NoToolBarArea);
+        openSaveToolBar->setFloatable(false);
+        openSaveToolBar->setOrientation(Qt::Horizontal);
+        openSaveToolBar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        openSaveToolBar->setObjectName("workspaceFilesToolbar");
         openSaveToolBar->setVisible(true /*toolbarsSettings["open_save"].toBool()*/);
         _toolbarsMenu->addAction(openSaveToolBar->toggleViewAction());
         VERIFY(connect(openSaveToolBar->toggleViewAction(), SIGNAL(triggered(bool)), this, SLOT(onOpenSaveToolbarVisibilityChanged(bool))));
         setToolBarIconSize(openSaveToolBar);
-        addToolBar(openSaveToolBar);
+        toolsLayout->addWidget(openSaveToolBar);
 
-        _execToolBar = new QToolBar(tr("Execution Toolbar"), this);
+        _execToolBar = new QToolBar(tr("Execution Toolbar"), workspaceTools);
         _execToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
         _execToolBar->addAction(_executeAction);
         _execToolBar->addAction(_stopAction);
         _execToolBar->addAction(_orientationAction);
+        // Window shortcuts must also work while the entire left pane is hidden.
+        addAction(_executeAction);
+        addAction(_stopAction);
+        addAction(_orientationAction);
         _execToolBar->setShortcutEnabled(1, true);
         _execToolBar->setMovable(false);
+        _execToolBar->setAllowedAreas(Qt::NoToolBarArea);
+        _execToolBar->setFloatable(false);
+        _execToolBar->setOrientation(Qt::Horizontal);
+        _execToolBar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        _execToolBar->setObjectName("workspaceExecutionToolbar");
         _execToolBar->setVisible(true /*toolbarsSettings["exec"].toBool()*/);
         setToolBarIconSize(_execToolBar);
-        addToolBar(_execToolBar);
+        toolsLayout->addWidget(_execToolBar);
+        toolsLayout->addStretch(1);
 
         _updateLabel = new QLabel;
         _updateLabel->setWordWrap(true);
@@ -585,7 +612,6 @@ namespace Robomongo
         _updateBar = new QToolBar("Updates Toolbar");
         _updateBar->addWidget(updateBarWid);
         _updateBar->setObjectName("updateBar");
-        addToolBarBreak();
         addToolBar(_updateBar);
         _updateBar->setHidden(true);
         _updateBar->setMovable(false);
@@ -1202,7 +1228,7 @@ namespace Robomongo
         _orientationAction->setEnabled(event->numOfResults() > 1);
     }
 
-    void MainWindow::createDatabaseExplorer()
+    void MainWindow::createDatabaseExplorer(QWidget *workspaceTools)
     {
         _explorer = new ExplorerWidget(this);
         AppRegistry::instance().bus()->subscribe(_explorer, ConnectingEvent::Type);
@@ -1211,10 +1237,18 @@ namespace Robomongo
 
         QDockWidget *explorerDock = new QDockWidget(tr("Database Explorer"));
         explorerDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-        explorerDock->setWidget(_explorer);
+        QWidget *explorerPanel = new QWidget(explorerDock);
+        explorerPanel->setObjectName("explorerPanel");
+        auto *explorerLayout = new QVBoxLayout(explorerPanel);
+        explorerLayout->setContentsMargins(0, 0, 0, 0);
+        explorerLayout->setSpacing(0);
+        explorerLayout->addWidget(workspaceTools);
+        explorerLayout->addWidget(_explorer, 1);
+        explorerDock->setWidget(explorerPanel);
         explorerDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
 
         QWidget *titleWidget = new QWidget(this);         // this lines simply remove
+        titleWidget->setFixedHeight(0);
         explorerDock->setTitleBarWidget(titleWidget);     // title bar widget.
         explorerDock->setVisible(true);
 
@@ -1283,13 +1317,9 @@ namespace Robomongo
         VERIFY(connect(_workArea, SIGNAL(currentChanged(int)), this, SLOT(updateMenus())));
         VERIFY(connect(_workArea, SIGNAL(currentChanged(int)), this, SLOT(on_tabChange())));
 
-        QHBoxLayout *hlayout = new QHBoxLayout;
-        hlayout->setContentsMargins(0, 3, 0, 0);
-        hlayout->addWidget(_workArea);
-        QWidget *window = new QWidget;
-        window->setLayout(hlayout);
-
-        setCentralWidget(window);
+        // The left column owns its toolbar and tree. The right column starts
+        // directly with tabs, independently of the left toolbar's height.
+        setCentralWidget(_workArea);
     }
     
     void MainWindow::onConnectToolbarVisibilityChanged(bool isVisible)

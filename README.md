@@ -83,6 +83,84 @@ The application upgrade does not upgrade or modify the connected MongoDB server.
 Historical `mongo` shell commands should be updated to their mongosh equivalents;
 server-removed operations are not emulated.
 
+## Data transfer
+
+The application includes a MongoDB data transfer workflow for moving JSON-based
+data through the desktop client. The transfer module provides:
+
+- Extended JSON document reading with BSON type preservation.
+- Batch document writing with controlled insert flow.
+- Import/export dialog integration in the GUI.
+- Dedicated unit tests covering document parsing and batch writing behavior.
+
+The transfer pipeline is designed to avoid unnecessary type conversion when
+working with MongoDB values such as ObjectId, dates, Decimal128 and binary data.
+
+## Query editor improvements
+
+The query workspace has been upgraded with a richer mongosh-aware editing
+experience:
+
+- Added JavaScript/mongosh autocomplete support for fields, nested paths,
+  collections, methods, operators and aggregation syntax.
+- Improved completion handling for quoted keys, Unicode characters and existing
+  function calls.
+- Added smarter delimiter pairing and structured newline indentation.
+- Improved editor state handling when moving the cursor, cancelling completion,
+  or editing while asynchronous suggestions are pending.
+- Query input height follows multiline content while preserving splitter resize
+  behavior, with automatic expansion limited to 18 visible lines.
+
+## GUI and testing updates
+
+Additional UI components and regression coverage were added:
+
+- Field value editor for safer document editing workflows.
+- Updated result and explorer interactions.
+- Expanded GUI tests for query editing, layout behavior and editor workflows.
+- Added data transfer unit tests for JSON parsing and batch operations.
+
+## Query workspace
+
+The resizable left column contains the horizontal connection, file and execution
+tools above the explorer tree. The right column starts directly with query tabs;
+no full-window toolbar consumes a separate row. Hiding the explorer hides its
+toolbar too; menus and keyboard shortcuts remain available. The query editor
+grows and shrinks with its content, from one text row up to 100 rows. Longer
+queries scroll within the editor, as do queries that exceed the available window
+height. Manual resizing remains available; changing the line count or window
+size reapplies the content height.
+Drag the divider above the results to resize it; result views resize on release.
+
+Autocomplete uses the surrounding query to suggest collection fields, nested
+paths, methods, and query/update/aggregation operators. Automatic suggestions
+start after a member-access dot, inside an object after its opening brace or a
+field separator, and inside field/collection quotes. Only text input triggers
+automatic suggestions; inserting a newline, deleting text or moving the caret
+cancels pending suggestions. Closed delimiters and bare value/identifier input do not open
+automatic global suggestions. The completion shortcut still works explicitly;
+accept with Enter/Tab and dismiss with Escape. Accepting a function inserts `()`
+with the caret inside, reusing existing parentheses and preserving arguments.
+Field, operator and string candidates use double quotes; accepting one replaces
+existing quote delimiters rather than duplicating them. Function candidates keep
+their callable syntax.
+Typing `"` or `{` inserts a matching closing delimiter as a single undo step.
+Enter indents object/array contents and function arguments, expands empty
+`{}`, `[]` and `()` pairs, and aligns closing delimiters with their opening line.
+It preserves query values, call chains, configured indentation and line endings.
+Each structured newline is one undo step and reads at most 32KiB before the caret.
+
+Field names come from recent query results and a bounded background sample, so
+uncommon fields absent from the sample may not appear. Empty or inaccessible
+collections still have static method/operator suggestions. This is MongoDB-aware
+completion, not a full JavaScript language server.
+
+Typing is debounced by 120ms with at most one active and one latest pending
+request. Completion reads cached metadata immediately; background discovery has
+short deadlines, capped concurrency, and bounded document/field/cache counts.
+Only a 32KiB editor context and up to 200 short suggestions are processed; very
+large single lines are skipped. Completion does not load the TypeScript engine.
+
 ## Tests
 
 `ctest --test-dir build/arm64 --output-on-failure` runs the unit suite without a

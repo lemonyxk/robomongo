@@ -2,6 +2,7 @@
 
 #include <QStyle>
 #include <QProxyStyle>
+#include <QFont>
 
 namespace Robomongo
 {
@@ -9,6 +10,8 @@ namespace Robomongo
     {
         void initStyle();
         void applyStyle(const QString &styleName);
+        void applyAppearanceSettings();
+        const QFont &defaultInterfaceFont();
         QStringList getSupportedStyles();
     }
 

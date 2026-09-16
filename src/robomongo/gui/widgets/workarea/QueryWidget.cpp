@@ -10,6 +10,7 @@
 #include <QMessageBox>
 #include <QMainWindow>
 #include <QDockWidget>
+#include <QSplitter>
 #include <Qsci/qsciscintilla.h>
 #include <Qsci/qscilexerjavascript.h>
 #include "robomongo/core/mongodb/MongoConnection.h"
@@ -83,30 +84,48 @@ namespace Robomongo
         // (Note: Qt full support for dock windows implemented only for QMainWindow)
         _viewer = new OutputWidget(this);
         _outputWindow = new QMainWindow;
+        _outputWindow->setContentsMargins(0, 0, 0, 0);
+        _outputWindow->setDockOptions(_outputWindow->dockOptions() & ~QMainWindow::AnimatedDocks);
         _dock = new CustomDockWidget(this);
         _dock->setAllowedAreas(Qt::NoDockWidgetArea);
         _dock->setFeatures(QDockWidget::DockWidgetFloatable);
         _dock->setWidget(_viewer);
-        _dock->setTitleBarWidget(new QWidget);
-        VERIFY(connect(_dock, SIGNAL(topLevelChanged(bool)), this, SLOT(on_dock_undock())));
+        auto *dockTitle = new QWidget;
+        dockTitle->setFixedHeight(0);
+        _dock->setTitleBarWidget(dockTitle);
         _outputWindow->addDockWidget(Qt::BottomDockWidgetArea, _dock);
 
         _outputLabel = new QLabel(this);
         _outputLabel->setContentsMargins(0, 5, 0, 0);
         _outputLabel->setVisible(false);
 
-        _line = new QFrame(this);
-        _line->setFrameShape(QFrame::HLine);
-        _line->setFrameShadow(QFrame::Raised);
+        _outputPanel = new QWidget(this);
+        auto *outputLayout = new QVBoxLayout(_outputPanel);
+        outputLayout->setContentsMargins(0, 0, 0, 0);
+        outputLayout->setSpacing(0);
+        outputLayout->addWidget(_outputLabel, 0, Qt::AlignTop);
+        outputLayout->addWidget(_outputWindow, 1);
 
-        _mainLayout = new QVBoxLayout;
-        _mainLayout->setSpacing(0);
-        _mainLayout->setContentsMargins(0, 0, 0, 0);
-        _mainLayout->addWidget(_scriptWidget); 
-        _mainLayout->addWidget(_line);
-        _mainLayout->addWidget(_outputLabel, 0, Qt::AlignTop);
-        _mainLayout->addWidget(_outputWindow, 1);      
-        setLayout(_mainLayout);
+        _splitter = new QSplitter(Qt::Vertical, this);
+        _splitter->setObjectName("queryResultSplitter");
+        _splitter->setChildrenCollapsible(false);
+        _splitter->setHandleWidth(5);
+        // Result views can be large. Commit resize when a drag ends, avoiding
+        // repeated table layouts/JSON viewport repaints on every mouse movement.
+        _splitter->setOpaqueResize(false);
+        _splitter->addWidget(_scriptWidget);
+        _splitter->addWidget(_outputPanel);
+        _splitter->setStretchFactor(0, 0);
+        _splitter->setStretchFactor(1, 1);
+        // Empty and single-line queries start compact; an existing multiline
+        // query gets enough initial space without locking the draggable split.
+        _splitter->setSizes(QList<int>() << _scriptWidget->preferredHeight() << 600);
+
+        auto *mainLayout = new QVBoxLayout(this);
+        mainLayout->setSpacing(0);
+        mainLayout->setContentsMargins(0, 0, 0, 0);
+        mainLayout->addWidget(_splitter);
+        VERIFY(connect(_dock, SIGNAL(topLevelChanged(bool)), this, SLOT(on_dock_undock())));
     }
 
     void QueryWidget::setScriptFocus()
@@ -359,24 +378,26 @@ namespace Robomongo
 
     void QueryWidget::on_dock_undock()
     {
-        if (!_dock->isFloating()) {    // If output window docked 
-            // Settings to revert to docked mode
-            _scriptWidget->ui_queryLinesCountChanged();
-            _mainLayout->addWidget(_scriptWidget);                     
-            _mainLayout->addWidget(_line);
-            _mainLayout->addWidget(_outputWindow, 1);
+        if (!_dock->isFloating()) {
+            _outputPanel->show();
+            if (_dockedSizes.size() == 2)
+                _splitter->setSizes(_dockedSizes);
             _dock->setFeatures(QDockWidget::DockWidgetFloatable);
-            _dock->setTitleBarWidget(new QWidget);
+            auto *dockTitle = new QWidget;
+            dockTitle->setFixedHeight(0);
+            _dock->setTitleBarWidget(dockTitle);
             _viewer->applyDockUndockSettings(true);
         }
-        else {              // output window undocked(floating)
-            // Settings for query window in order to use maximum space
-            _scriptWidget->disableFixedHeight();
-            _mainLayout->addWidget(_scriptWidget, 1); 
-            _mainLayout->addWidget(_line);
-            _mainLayout->addWidget(_outputWindow);
+        else {
+            _dockedSizes = _splitter->sizes();
+            // Hide the empty host so the query fills the tab. The floating
+            // QDockWidget stays visible and retains ownership of its result view.
+            _outputPanel->hide();
             _dock->setFeatures(QDockWidget::DockWidgetClosable);
+            QWidget *dockTitle = _dock->titleBarWidget();
             _dock->setTitleBarWidget(nullptr);
+            if (dockTitle)
+                dockTitle->deleteLater();
             _viewer->applyDockUndockSettings(false);
         }
     }

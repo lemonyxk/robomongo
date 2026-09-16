@@ -138,6 +138,17 @@ namespace Robomongo {
         _bus->send(_worker, new InsertDocumentRequest(this, obj, ns, true));
     }
 
+    void MongoServer::updateField(const mongo::BSONObj &id, const std::string &fieldPath,
+                                  const mongo::BSONObj &value, const MongoNamespace &ns,
+                                  const QString &requestId)
+    {
+        if (!_worker) {
+            Q_EMIT fieldUpdated(requestId, tr("The database connection is not available."));
+            return;
+        }
+        _bus->send(_worker, new UpdateFieldRequest(this, id, fieldPath, value, ns, requestId));
+    }
+
     void MongoServer::removeDocuments(mongo::Query query, const MongoNamespace &ns, 
                                       RemoveDocumentCount removeCount, int index) 
     {
@@ -278,6 +289,14 @@ namespace Robomongo {
             _bus->publish(new InsertDocumentResponse(this, event->error()));
             LOG_MSG("Document inserted.", mongo::logger::LogSeverity::Info());
         }
+    }
+
+    void MongoServer::handle(UpdateFieldResponse *event)
+    {
+        // Keep completion scoped to this request; a field editor must not close
+        // because another document write on the same server completed.
+        Q_EMIT fieldUpdated(event->requestId, event->isError()
+            ? QString::fromStdString(event->error().errorMessage()) : QString());
     }
 
     void MongoServer::handle(RemoveDocumentResponse *event) 

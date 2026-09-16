@@ -18,6 +18,7 @@ namespace Robomongo
         void open(const std::string &script, const std::string &dbName = std::string());
         void query(int resultIndex, const MongoQueryInfo &info);
         void autocomplete(const std::string &prefix);
+        void cancelAutocomplete();
         void stop();
         MongoServer *server() const { return _server; }
         std::string query() const;
@@ -44,6 +45,8 @@ namespace Robomongo
         ScriptInfo _scriptInfo;
         AggrInfo _aggrInfo;
         MongoServer *_server;
+        bool _autocompleteInFlight = false;
+        std::string _pendingAutocomplete;
     };
 
 }

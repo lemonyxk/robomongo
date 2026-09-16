@@ -226,9 +226,16 @@ QStringList ScriptEngine::complete(const std::string& prefix, AutocompletionMode
     if (mode == AutocompleteNone || !_initialized) return {};
     try {
         QJsonObject const response = rpc("autocomplete", QJsonObject {{"code", QString::fromStdString(prefix)},
-            {"includeCollectionNames", mode == AutocompleteAll}}, 5000);
+            {"includeCollectionNames", mode == AutocompleteAll}, {"tokenOnly", true},
+            {"functionCalls", true}, {"quoteKeys", true}}, 5000);
         QStringList completions;
-        for (const QJsonValue& value : response.value("completions").toArray()) completions.append(value.toString());
+        for (const QJsonValue& value : response.value("completions").toArray()) {
+            const QString token = value.toString();
+            if (!token.isEmpty() && token.size() <= 512)
+                completions.append(token);
+            if (completions.size() >= 200)
+                break;
+        }
         return completions;
     } catch (const std::exception&) { return {}; }
 }

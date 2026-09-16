@@ -149,6 +149,19 @@ namespace Robomongo
         int textFontPointSize() const { return _textFontPointSize; }
         void setTextFontPointSize(int pointSize);
 
+        QString uiFontFamily() const { return _uiFontFamily; }
+        void setUiFontFamily(const QString &family) { _uiFontFamily = family; }
+        int uiFontPointSize() const { return _uiFontPointSize; }
+        void setUiFontPointSize(int pointSize) {
+            _uiFontPointSize = pointSize > 0 ? qBound(6, pointSize, 48) : -1;
+        }
+
+        // Zero uses a font-aware automatic height; values are logical pixels.
+        int tableRowHeight() const { return _tableRowHeight; }
+        void setTableRowHeight(int height) {
+            _tableRowHeight = height > 0 ? qBound(18, height, 100) : 0;
+        }
+
         int mongoTimeoutSec() const { return _mongoTimeoutSec; }
         int shellTimeoutSec() const { return _shellTimeoutSec; }
 
@@ -226,6 +239,9 @@ namespace Robomongo
         QString _currentStyle;
         QString _textFontFamily;
         int _textFontPointSize;
+        QString _uiFontFamily;
+        int _uiFontPointSize = -1;
+        int _tableRowHeight = 0;
 
         int _mongoTimeoutSec;
         int _shellTimeoutSec;

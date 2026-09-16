@@ -8,6 +8,8 @@
 #include <QEventLoop>
 #include <QKeyEvent>
 #include <QPointer>
+#include <QLabel>
+#include <QPlainTextEdit>
 #include <QSettings>
 #include <QTabBar>
 #include <QTimer>
@@ -19,6 +21,7 @@
 #include "robomongo/core/domain/Notifier.h"
 #include "robomongo/core/settings/SettingsManager.h"
 #include "robomongo/gui/dialogs/DocumentTextEditor.h"
+#include "robomongo/gui/dialogs/FieldValueEditor.h"
 #include "robomongo/gui/editors/FindFrame.h"
 #include "robomongo/gui/editors/PlainJavaScriptEditor.h"
 #include "robomongo/gui/widgets/workarea/BsonTableView.h"
@@ -195,6 +198,91 @@ TEST_F(OutputWidgetTest, ReadOnlyAndProjectedViewsRejectAllWriteEntrypoints)
         notifier.deleteDocuments({}, true);
     }
     EXPECT_EQ(openedDialogs, 0);
+}
+
+TEST_F(OutputWidgetTest, DoubleClickEditsTheClickedTreeOrTableValue)
+{
+    const auto doc = BSON("_id" << 1 << "first" << "one" << "second" << "two");
+    output->present(&shell, {result(queryInfo("fields"), {MongoDocument::fromBsonObj(doc)})});
+    auto *content = item(0);
+    auto *tree = content->findChild<BsonTreeView*>();
+    ASSERT_NE(tree, nullptr);
+    const auto root = tree->model()->index(0, 0);
+    tree->model()->fetchMore(root);
+    tree->setCurrentIndex(tree->model()->index(1, 0, root));
+    const auto clicked = tree->model()->index(2, BsonTreeItem::eValue, root);
+    ASSERT_TRUE(QMetaObject::invokeMethod(tree, "doubleClicked", Qt::DirectConnection,
+                                         Q_ARG(QModelIndex, clicked)));
+    auto *editor = tree->findChild<FieldValueEditor*>();
+    ASSERT_NE(editor, nullptr);
+    EXPECT_EQ(editor->findChild<QLabel*>("fieldPath")->text(), "second");
+    EXPECT_EQ(editor->findChild<QPlainTextEdit*>("fieldValueInput")->toPlainText(), "two");
+    editor->reject();
+    QCoreApplication::sendPostedEvents(editor, QEvent::DeferredDelete);
+
+    content->showTable();
+    auto *table = content->findChild<BsonTableView*>();
+    ASSERT_NE(table, nullptr);
+    table->selectAll(); // Selection order must not redirect the clicked field.
+    const auto cell = table->model()->index(0, 2);
+    ASSERT_TRUE(QMetaObject::invokeMethod(table, "doubleClicked", Qt::DirectConnection,
+                                         Q_ARG(QModelIndex, cell)));
+    editor = table->findChild<FieldValueEditor*>();
+    ASSERT_NE(editor, nullptr);
+    EXPECT_EQ(editor->findChild<QLabel*>("fieldPath")->text(), "second");
+    EXPECT_EQ(editor->findChild<QPlainTextEdit*>("fieldValueInput")->toPlainText(), "two");
+    editor->reject();
+}
+
+TEST_F(OutputWidgetTest, NestedArrayFieldUsesItsFullPath)
+{
+    const auto doc = BSON("_id" << 1 << "items" << BSON_ARRAY(BSON("count" << 9LL)));
+    output->present(&shell, {result(queryInfo("array"), {MongoDocument::fromBsonObj(doc)})});
+    auto *tree = item(0)->findChild<BsonTreeView*>();
+    ASSERT_NE(tree, nullptr);
+    auto *model = tree->model();
+    const auto root = model->index(0, 0);
+    model->fetchMore(root);
+    const auto array = model->index(1, 0, root);
+    model->fetchMore(array);
+    const auto element = model->index(0, 0, array);
+    model->fetchMore(element);
+    const auto count = model->index(0, BsonTreeItem::eValue, element);
+    ASSERT_TRUE(QMetaObject::invokeMethod(tree, "doubleClicked", Qt::DirectConnection,
+                                         Q_ARG(QModelIndex, count)));
+    auto *editor = tree->findChild<FieldValueEditor*>();
+    ASSERT_NE(editor, nullptr);
+    EXPECT_EQ(editor->findChild<QLabel*>("fieldPath")->text(), "items.0.count");
+    EXPECT_EQ(editor->findChild<QPlainTextEdit*>("fieldValueInput")->toPlainText(), "9");
+    editor->reject();
+}
+
+TEST_F(OutputWidgetTest, FieldEditingRejectsReadonlyAndAmbiguousTargets)
+{
+    struct Case { mongo::BSONObj document; int row; bool readOnly; bool projection; };
+    const std::vector<Case> cases = {
+        {BSON("_id" << 1 << "value" << 2), 0, false, false},
+        {BSON("_id" << 1 << "value" << 2), 1, true, false},
+        {BSON("_id" << 1 << "value" << 2), 1, false, true},
+        {BSON("value" << 2), 0, false, false},
+        {BSON("_id" << 1 << "a.b" << 2), 1, false, false},
+        {BSON("_id" << 1 << "$value" << 2), 1, false, false},
+        {BSON("_id" << 1 << "value" << 2 << "value" << 3), 1, false, false}
+    };
+    for (const auto &test : cases) {
+        auto info = queryInfo("protected-field");
+        info.readOnly = test.readOnly;
+        if (test.projection)
+            info._fields = BSON("value" << 1);
+        output->present(&shell, {result(info, {MongoDocument::fromBsonObj(test.document)})});
+        auto *tree = item(0)->findChild<BsonTreeView*>();
+        ASSERT_NE(tree, nullptr);
+        const auto root = tree->model()->index(0, 0);
+        tree->model()->fetchMore(root);
+        Notifier notifier(tree, &shell, info);
+        EXPECT_FALSE(notifier.editField(tree->model()->index(test.row, BsonTreeItem::eValue, root)));
+        EXPECT_EQ(tree->findChild<FieldValueEditor*>(), nullptr);
+    }
 }
 
 TEST_F(OutputWidgetTest, ReplacingTextResultDropsQueuedOldJson)

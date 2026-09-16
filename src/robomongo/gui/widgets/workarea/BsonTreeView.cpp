@@ -28,6 +28,11 @@ namespace Robomongo
         setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         setSelectionMode(QAbstractItemView::ExtendedSelection);
         setSelectionBehavior(QAbstractItemView::SelectRows);
+        setEditTriggers(QAbstractItemView::NoEditTriggers);
+        connect(this, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex &index) {
+            if (index.column() == BsonTreeItem::eValue)
+                _notifier.editField(index);
+        });
         setContextMenuPolicy(Qt::CustomContextMenu);
         VERIFY(connect(this, SIGNAL(customContextMenuRequested(const QPoint&)), this, SLOT(showContextMenu(const QPoint&))));
 

@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
         auto duplicate = engine.exec("db.items.insertOne({_id:2})");
         require(duplicate.error(), "Duplicate key error was not propagated");
         auto completions = engine.complete("ObjectI", AutocompleteAll);
-        require(completions.contains("ObjectId"), "BSON helper autocomplete failed");
+        require(completions.contains("ObjectId()"), "BSON helper autocomplete failed");
         std::thread interrupter([&engine] {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             engine.interrupt();

@@ -6,6 +6,8 @@
 #include <QMenu>
 #include <QKeyEvent>
 
+#include "robomongo/core/AppRegistry.h"
+#include "robomongo/core/settings/SettingsManager.h"
 #include "robomongo/gui/widgets/workarea/BsonTreeItem.h"
 #include "robomongo/gui/GuiRegistry.h"
 #include "robomongo/core/utils/QtUtils.h"
@@ -26,7 +28,6 @@ namespace Robomongo
 
         verticalHeader()->setDefaultAlignment(Qt::AlignLeft);
         verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-        verticalHeader()->setDefaultSectionSize(qMax(28, fontMetrics().height() + 10));
         horizontalHeader()->setDefaultAlignment(Qt::AlignLeft);
         horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         horizontalHeader()->setDefaultSectionSize(180);
@@ -34,8 +35,31 @@ namespace Robomongo
 
         setSelectionMode(QAbstractItemView::ExtendedSelection);
         setSelectionBehavior(QAbstractItemView::SelectItems);
+        setEditTriggers(QAbstractItemView::NoEditTriggers);
+        connect(this, &QAbstractItemView::doubleClicked, &_notifier, &Notifier::editField);
         setContextMenuPolicy(Qt::CustomContextMenu);
         VERIFY(connect(this, SIGNAL(customContextMenuRequested(const QPoint&)), this, SLOT(showContextMenu(const QPoint&))));
+        applyAppearanceSettings();
+    }
+
+    void BsonTableView::applyAppearanceSettings()
+    {
+        QHeaderView *header = verticalHeader();
+        // Recalculate the native minimum after font or style changes, then leave
+        // enough room for the cell text and grid line at the current font size.
+        header->setMinimumSectionSize(-1);
+        const int minimumHeight = qMax(18, qMax(header->minimumSectionSize(), fontMetrics().height() + 4));
+        const int configuredHeight = AppRegistry::instance().settingsManager()->tableRowHeight();
+        const int rowHeight = configuredHeight > 0 ? configuredHeight : qMax(28, fontMetrics().height() + 10);
+        header->setMinimumSectionSize(minimumHeight);
+        header->setDefaultSectionSize(qMax(minimumHeight, rowHeight));
+    }
+
+    void BsonTableView::changeEvent(QEvent *event)
+    {
+        BaseClass::changeEvent(event);
+        if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange)
+            applyAppearanceSettings();
     }
 
     void BsonTableView::keyPressEvent(QKeyEvent *event)

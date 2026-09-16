@@ -412,6 +412,20 @@ namespace Robomongo
         }
     }
 
+    void MongoWorker::handle(UpdateFieldRequest *event)
+    {
+        try {
+            std::unique_ptr<MongoClient> client(getClient());
+            client->updateField(event->id, event->fieldPath, event->value, event->ns);
+            client->done();
+            reply(event->sender(), new UpdateFieldResponse(this, event->requestId));
+        }
+        catch (const std::exception &ex) {
+            reply(event->sender(), new UpdateFieldResponse(this, event->requestId, EventError(ex.what())));
+            sendLog(this, LogEvent::RBM_ERROR, ex.what());
+        }
+    }
+
     void MongoWorker::handle(RemoveDocumentRequest *event)
     {
         try {
