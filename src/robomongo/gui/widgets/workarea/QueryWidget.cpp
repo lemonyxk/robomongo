@@ -117,15 +117,38 @@ namespace Robomongo
         _splitter->addWidget(_outputPanel);
         _splitter->setStretchFactor(0, 0);
         _splitter->setStretchFactor(1, 1);
-        // Empty and single-line queries start compact; an existing multiline
-        // query gets enough initial space without locking the draggable split.
+        // Start compact and keep following the content as its line count changes.
         _splitter->setSizes(QList<int>() << _scriptWidget->preferredHeight() << 600);
 
         auto *mainLayout = new QVBoxLayout(this);
         mainLayout->setSpacing(0);
         mainLayout->setContentsMargins(0, 0, 0, 0);
         mainLayout->addWidget(_splitter);
+        _splitter->installEventFilter(this);
+        VERIFY(connect(_scriptWidget, &ScriptWidget::preferredHeightChanged,
+                       this, &QueryWidget::resizeScriptToContents));
         VERIFY(connect(_dock, SIGNAL(topLevelChanged(bool)), this, SLOT(on_dock_undock())));
+    }
+
+    bool QueryWidget::eventFilter(QObject *object, QEvent *event)
+    {
+        if (object == _splitter && event->type() == QEvent::Resize)
+            resizeScriptToContents();
+        return QWidget::eventFilter(object, event);
+    }
+
+    void QueryWidget::resizeScriptToContents()
+    {
+        if (!outputWindowDocked()) {
+            // Changes while results float must also be applied when redocking.
+            _dockedSizes.clear();
+            return;
+        }
+
+        const int availableHeight = qMax(0, _splitter->contentsRect().height() - _splitter->handleWidth());
+        const int resultMinimum = qMax(_outputPanel->minimumHeight(), _outputPanel->minimumSizeHint().height());
+        const int editorHeight = qMin(_scriptWidget->preferredHeight(), qMax(0, availableHeight - resultMinimum));
+        _splitter->setSizes(QList<int>() << editorHeight << availableHeight - editorHeight);
     }
 
     void QueryWidget::setScriptFocus()
@@ -382,6 +405,8 @@ namespace Robomongo
             _outputPanel->show();
             if (_dockedSizes.size() == 2)
                 _splitter->setSizes(_dockedSizes);
+            else
+                resizeScriptToContents();
             _dock->setFeatures(QDockWidget::DockWidgetFloatable);
             auto *dockTitle = new QWidget;
             dockTitle->setFixedHeight(0);

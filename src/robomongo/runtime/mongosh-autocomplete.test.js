@@ -4,7 +4,7 @@
 const assert = require('node:assert/strict');
 const { performance } = require('node:perf_hooks');
 const { test } = require('node:test');
-const { createAutocomplete, collectFields, LIMITS } = require('./mongosh-autocomplete');
+const { createAutocomplete, createGlobalCompletions, collectFields, LIMITS } = require('./mongosh-autocomplete');
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => {
@@ -41,6 +41,97 @@ function includes(completer, code, expected) {
   for (const name of expected) assert.ok(actual.includes(name), `${code}: missing ${name}; got ${JSON.stringify(actual)}`);
   return actual;
 }
+
+test('global helper members complete with correct replacement boundaries and callable metadata', () => {
+  class ReplicaSet {
+    status() {}
+    conf() {}
+    config() {}
+  }
+  const completer = engine(createGlobalCompletions({ rs: new ReplicaSet(), sh: { status() {} },
+    EJSON: { parse() {}, stringify() {} }, helper: { nested: { run() {}, value: 1 } } }));
+  const options = { functionCalls: true };
+  includes(completer, 'r', ['rs']);
+  includes(completer, 's', ['sh']);
+  assert.deepEqual(tokens(completer, 'rs.st', options), ['rs.status()']);
+  assert.deepEqual(tokens(completer, 'rs.co', options), ['rs.conf()', 'rs.config()']);
+  assert.ok(tokens(completer, 'rs.', options).includes('rs.status()'));
+  assert.deepEqual(tokens(completer, 'rs.st'), ['rs.status']);
+  assert.deepEqual(tokens(completer, 'sh.st', options), ['sh.status()']);
+  assert.deepEqual(tokens(completer, 'EJSON.pa', options), ['EJSON.parse()']);
+  assert.deepEqual(tokens(completer, 'helper.nested.r', options), ['helper.nested.run()']);
+  assert.deepEqual(tokens(completer, 'helper.nested.v', options), ['helper.nested.value']);
+  assert.deepEqual(tokens(completer, 'rs .st', options), ['.status()']);
+  assert.deepEqual(tokens(completer, 'rs. st', options), ['status()']);
+  assert.deepEqual(tokens(completer, 'rs /* comment */\n. st', options), ['status()']);
+  assert.deepEqual(tokens(completer, 'helper . nested.r', options), ['nested.run()']);
+  assert.deepEqual(completer.complete('const result = rs.st', options),
+    { replace: 'rs.st', completions: ['const result = rs.status()'] });
+});
+
+test('global members do not override query fields, quoted strings or calls', () => {
+  const completer = engine(createGlobalCompletions({ rs: { status() {} } }));
+  completer.warm('app', 'users', [{ rs: { state: 1 } }]);
+  assert.deepEqual(tokens(completer, 'db.users.find({ rs.st', { quoteKeys: true }), ['"rs.state"']);
+  assert.deepEqual(tokens(completer, 'db.users.find({ "rs.st', { quoteKeys: true }), ['"rs.state"']);
+  assert.deepEqual(tokens(completer, 'db.users.find({ value: rs.st', { functionCalls: true }), ['rs.status()']);
+  for (const code of ['"rs.st', 'db.users.find({ value: "rs.st', '// rs.st', '/* rs.st',
+    'rs.status().st', 'unknown().rs.st', '1.rs.st', '`${rs.st'])
+    assert.deepEqual(tokens(completer, code), [], code);
+});
+
+test('runtime descriptors provide VM intrinsics without invoking getters, proxies or functions', () => {
+  const vm = require('node:vm');
+  const context = vm.createContext({});
+  const intrinsics = vm.runInContext('Object.getOwnPropertyDescriptors(globalThis)', context);
+  let effects = 0;
+  Object.defineProperty(Object.getPrototypeOf(intrinsics), 'inheritedGetter', {
+    get() { ++effects; return { value: { run() {} } }; }
+  });
+  const proxy = new Proxy({}, {
+    ownKeys() { ++effects; throw new Error('ownKeys must not run'); },
+    getPrototypeOf() { ++effects; throw new Error('getPrototypeOf must not run'); },
+    getOwnPropertyDescriptor() { ++effects; throw new Error('descriptor trap must not run'); }
+  });
+  Object.assign(context, { helper: {
+    run() { ++effects; },
+    get getter() { ++effects; return { run() {} }; },
+    proxy,
+    inheritedProxy: Object.create(proxy)
+  }, proxy });
+  Object.defineProperty(context, 'getter', { get() { ++effects; return context.helper; } });
+  const completer = engine(createGlobalCompletions(context, intrinsics));
+  const options = { functionCalls: true };
+  assert.deepEqual(tokens(completer, 'JSON.pa', options), ['JSON.parse()']);
+  assert.deepEqual(tokens(completer, 'Math.ma', options), ['Math.max()']);
+  assert.deepEqual(tokens(completer, 'Math.P', options), ['Math.PI']);
+  assert.deepEqual(tokens(completer, 'parseIn', options), ['parseInt()']);
+  assert.deepEqual(tokens(completer, 'helper.r', options), ['helper.run()']);
+  assert.deepEqual(tokens(completer, 'helper.g', options), ['helper.getter']);
+  for (const code of ['getter.', 'inheritedGetter.', 'helper.getter.', 'proxy.', 'helper.proxy.', 'helper.inheritedProxy.',
+    'helper.inheritedProxy.nested.', 'helper.run().'])
+    assert.deepEqual(tokens(completer, code, options), [], code);
+  assert.equal(effects, 0);
+  context.JSON = { replacement() {} };
+  assert.deepEqual(tokens(completer, 'JSON.', options), ['JSON.replacement()'], 'current values override captured intrinsics');
+});
+
+test('runtime member inspection respects shadowed accessors and bounded depth and candidates', () => {
+  let effects = 0;
+  const value = Object.create({ run() {}, other() {} });
+  Object.defineProperty(value, 'run', { get() { ++effects; return function() {}; } });
+  const completions = createGlobalCompletions({ helper: value });
+  assert.deepEqual(completions.getGlobalMembers(['helper']).filter(({ name }) => name === 'run'),
+    [{ name: 'run', callable: false }]);
+  assert.equal(effects, 0);
+  assert.deepEqual(completions.getGlobalMembers(Array(LIMITS.depth + 1).fill('helper')), []);
+  const large = Object.fromEntries(Array.from({ length: 10000 }, (_, index) => [`field${index}`, index]));
+  assert.ok(createGlobalCompletions({ large }).getGlobalMembers(['large']).length <= LIMITS.fields);
+  const completer = engine(completions);
+  const started = performance.now();
+  assert.deepEqual(tokens(completer, 'helper .'.repeat(4000) + ' run'), []);
+  assert.ok(performance.now() - started < 200, 'long spaced member chains must stay bounded');
+});
 
 test('function-call insertion is opt-in and distinguishes method candidates from data names', async () => {
   const completer = engine({ loadCollections: async () => ['stats', 'find', 'count'] });
@@ -187,6 +278,14 @@ test('comments and ordinary string values do not offer structural completions', 
     'db.users.find({ name: \'hello'
   ]) assert.deepEqual(tokens(completer, code), [], code);
   includes(completer, '// old query\ndb.users.find({ age: { $g', ['$gt']);
+});
+
+test('regular expressions after expression operators do not offer globals', () => {
+  const completer = engine();
+  for (const code of ['const pattern = true ? /Obj', 'x && /Obj', 'x || /Obj', 'x ?? /Obj',
+    'x + /Obj', 'x * /Obj', '!/Obj', 'void /Obj', 'x => /Obj', 'return /Obj', '/[Obj'])
+    assert.deepEqual(tokens(completer, code), [], code);
+  includes(completer, 'x / Obj', ['ObjectId']);
 });
 
 test('completion never evaluates user expressions', () => {

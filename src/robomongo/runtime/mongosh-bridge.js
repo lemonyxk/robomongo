@@ -182,7 +182,7 @@ async function runShellWorker() {
   const { ShellInstanceState, toShellResult, getShellApiType } = dependencyRequire('@mongosh/shell-api');
   const { ShellEvaluator } = dependencyRequire('@mongosh/shell-evaluator');
   const { EJSON } = dependencyRequire('bson');
-  const { createAutocomplete, LIMITS: completionLimits } = require('./mongosh-autocomplete');
+  const { createAutocomplete, createGlobalCompletions, LIMITS: completionLimits } = require('./mongosh-autocomplete');
   const parser = await import(require('node:url').pathToFileURL(dependencyRequire.resolve('@babel/parser')).href);
   let provider;
   let state;
@@ -245,6 +245,9 @@ async function runShellWorker() {
     });
     context = vm.createContext({ Buffer, setTimeout, clearTimeout, setInterval, clearInterval,
       TextEncoder, TextDecoder, URL, URLSearchParams, require: dependencyRequire });
+    // VM intrinsics such as Math/JSON are not own properties of the external
+    // context object. Capture their descriptors before any user code can run.
+    const intrinsicDescriptors = vm.runInContext('Object.getOwnPropertyDescriptors(globalThis)', context);
     state.setCtx(context);
     evaluator = new ShellEvaluator(state, (value) => value);
     // Store a credential-free server label for the UI.
@@ -254,12 +257,7 @@ async function runShellWorker() {
     // never read through a newly assigned provider after reconnecting.
     const completionProvider = provider;
     autocomplete = createAutocomplete({ getDatabase: databaseName,
-      getGlobals: () => Object.getOwnPropertyNames(context),
-      isGlobalFunction: (name) => {
-        // Inspect data properties only; completion must not execute getters.
-        const descriptor = Object.getOwnPropertyDescriptor(context, name);
-        return descriptor && 'value' in descriptor && typeof descriptor.value === 'function';
-      },
+      ...createGlobalCompletions(context, intrinsicDescriptors),
       loadFields: params.nodb ? undefined : async (database, collection, options) => {
         const cursor = completionProvider.find(database, collection, {}, {
           limit: options.limit, batchSize: 1, maxTimeMS: options.maxTimeMS,

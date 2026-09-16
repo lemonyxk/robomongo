@@ -79,8 +79,11 @@ namespace Robomongo
         void disableFixedHeight() const;
         int preferredHeight() const;
 
+        QSize sizeHint() const override;
+
     Q_SIGNALS:
         void textChanged();
+        void preferredHeightChanged();
 
     public Q_SLOTS:
         void setText(const QString &text);

@@ -183,9 +183,10 @@ TEST_F(WorkspaceLayoutTest, ExplorerAndWorkspaceHaveIndependentHeaders)
         EXPECT_TRUE(window.findChild<QToolBar *>(QString::fromLatin1(name))->isVisible());
 }
 
-TEST_F(WorkspaceLayoutTest, EditorStartsWithOneSpacedRowAndTypingKeepsTheChosenSplit)
+TEST_F(WorkspaceLayoutTest, EditorHeightTracksInsertedAndDeletedLines)
 {
-    shell.setScript(QStringLiteral("db.users.find({})"));
+    const QString initialQuery = QStringLiteral("db.users.find({})");
+    shell.setScript(initialQuery);
     QueryWidget query(&shell);
     query.resize(1000, 760);
     query.show();
@@ -204,13 +205,41 @@ TEST_F(WorkspaceLayoutTest, EditorStartsWithOneSpacedRowAndTypingKeepsTheChosenS
     EXPECT_GE(editor->SendScintilla(QsciScintilla::SCI_GETEXTRAASCENT), 2);
     EXPECT_GE(editor->SendScintilla(QsciScintilla::SCI_GETEXTRADESCENT), 2);
 
-    splitter->setSizes(QList<int>() << 330 << 425);
-    settleLayout(query);
-    const int editorPanelHeight = splitter->sizes()[0];
-    editor->append(QString(20000, 'a') + QString(500, '\n'));
+    const int oneRowPanelHeight = splitter->sizes()[0];
+    editor->setCursorPosition(0, initialQuery.size());
+    editor->insert(QStringLiteral("\n// second\n// third\n// fourth"));
     script->hideAutocompletion();
     settleLayout(query);
-    EXPECT_EQ(splitter->sizes()[0], editorPanelHeight);
+    ASSERT_EQ(editor->lines(), 4);
+    const int fourRowHeight = editor->textHeight(0) * 4;
+    EXPECT_GE(editor->viewport()->height(), fourRowHeight);
+    EXPECT_LE(editor->viewport()->height(), fourRowHeight + 12);
+    const int multilinePanelHeight = splitter->sizes()[0];
+    EXPECT_GT(multilinePanelHeight, oneRowPanelHeight);
+
+    editor->setSelection(0, initialQuery.size(), 3, editor->text(3).size());
+    editor->removeSelectedText();
+    settleLayout(query);
+    ASSERT_EQ(editor->text(), initialQuery);
+    ASSERT_EQ(editor->lines(), 1);
+    EXPECT_LT(splitter->sizes()[0], multilinePanelHeight);
+    EXPECT_GE(editor->viewport()->height(), editor->textHeight(0));
+    EXPECT_LE(editor->viewport()->height(), editor->textHeight(0) + 12);
+
+    // A line-count change resumes content sizing after a manual resize.
+    splitter->setSizes(QList<int>() << 330 << 425);
+    settleLayout(query);
+    editor->setCursorPosition(0, initialQuery.size());
+    editor->insert(QStringLiteral("\n"));
+    settleLayout(query);
+    ASSERT_EQ(editor->lines(), 2);
+    EXPECT_GE(editor->viewport()->height(), editor->textHeight(0) * 2);
+    EXPECT_LE(editor->viewport()->height(), editor->textHeight(0) * 2 + 12);
+
+    editor->clear();
+    settleLayout(query);
+    EXPECT_GE(editor->viewport()->height(), editor->textHeight(0));
+    EXPECT_LE(editor->viewport()->height(), editor->textHeight(0) + 12);
     EXPECT_LE(editor->minimumHeight(), editor->textHeight(0) + 12);
 }
 
@@ -227,6 +256,104 @@ TEST_F(WorkspaceLayoutTest, ExistingMultilineQueryGetsItsContentHeightInitially)
     EXPECT_GE(editor->viewport()->height(), contentHeight);
     EXPECT_LE(editor->viewport()->height(), contentHeight + 12);
     EXPECT_LE(editor->minimumHeight(), editor->textHeight(0) + 12);
+}
+
+TEST_F(WorkspaceLayoutTest, EditorShowsAtMostOneHundredRowsAndScrollsToAdditionalLines)
+{
+    shell.setScript(QStringLiteral("db.users.find({})"));
+    QueryWidget query(&shell);
+    auto *editor = query.findChild<RoboScintilla *>("queryEditor");
+    auto *splitter = query.findChild<QSplitter *>("queryResultSplitter");
+    ASSERT_NE(editor, nullptr);
+    ASSERT_NE(splitter, nullptr);
+    const int hundredRowHeight = editor->textHeight(0) * 100;
+    // Make room for all 100 rows without depending on the desktop's dimensions.
+    query.setAttribute(Qt::WA_DontShowOnScreen);
+    query.resize(1000, hundredRowHeight + 1000);
+    query.show();
+    editor->setText(QString(99, '\n'));
+    settleLayout(query);
+    ASSERT_EQ(editor->lines(), 100);
+    EXPECT_GE(editor->viewport()->height(), hundredRowHeight);
+    EXPECT_LE(editor->viewport()->height(), hundredRowHeight + 12);
+    const int cappedPanelHeight = splitter->sizes()[0];
+
+    editor->append(QString(50, '\n'));
+    settleLayout(query);
+    ASSERT_EQ(editor->lines(), 150);
+    EXPECT_EQ(splitter->sizes()[0], cappedPanelHeight);
+    EXPECT_GE(editor->viewport()->height(), hundredRowHeight);
+    EXPECT_LE(editor->viewport()->height(), hundredRowHeight + 12);
+    editor->SendScintilla(QsciScintilla::SCI_LINESCROLL, 0, 149);
+    const int firstVisibleLine = editor->SendScintilla(QsciScintilla::SCI_GETFIRSTVISIBLELINE);
+    const int visibleLines = editor->SendScintilla(QsciScintilla::SCI_LINESONSCREEN);
+    EXPECT_GT(firstVisibleLine, 0);
+    EXPECT_GE(firstVisibleLine + visibleLines, editor->lines());
+
+    editor->setText(QString(2, '\n'));
+    settleLayout(query);
+    ASSERT_EQ(editor->lines(), 3);
+    EXPECT_GE(editor->viewport()->height(), editor->textHeight(0) * 3);
+    EXPECT_LE(editor->viewport()->height(), editor->textHeight(0) * 3 + 12);
+}
+
+TEST_F(WorkspaceLayoutTest, EditorRecoversContentHeightWhenTheWindowGetsMoreSpace)
+{
+    shell.setScript(QString(49, '\n'));
+    QueryWidget query(&shell);
+    query.setAttribute(Qt::WA_DontShowOnScreen);
+    query.resize(1000, 360);
+    query.show();
+    settleLayout(query);
+    auto *editor = query.findChild<RoboScintilla *>("queryEditor");
+    auto *splitter = query.findChild<QSplitter *>("queryResultSplitter");
+    ASSERT_NE(editor, nullptr);
+    ASSERT_NE(splitter, nullptr);
+    ASSERT_EQ(editor->lines(), 50);
+    const int contentHeight = editor->textHeight(0) * 50;
+    EXPECT_LT(editor->viewport()->height(), contentHeight);
+    EXPECT_GT(splitter->sizes()[1], 0);
+
+    query.resize(1000, contentHeight + 600);
+    settleLayout(query);
+    EXPECT_GE(editor->viewport()->height(), contentHeight);
+    EXPECT_LE(editor->viewport()->height(), contentHeight + 12);
+    EXPECT_GT(splitter->sizes()[1], 0);
+
+    query.resize(1000, 360);
+    settleLayout(query);
+    EXPECT_LT(editor->viewport()->height(), contentHeight);
+    EXPECT_GT(splitter->sizes()[1], 0);
+}
+
+TEST_F(WorkspaceLayoutTest, QueryHeightFollowsFontSizeChanges)
+{
+    QueryWidget query(&shell);
+    query.resize(1000, 760);
+    query.show();
+    settleLayout(query);
+    auto *editor = query.findChild<RoboScintilla *>("queryEditor");
+    ASSERT_NE(editor, nullptr);
+    ASSERT_EQ(editor->lines(), 4);
+    const int originalHeight = editor->viewport()->height();
+    const QString originalText = editor->text();
+
+    settings->setTextFontPointSize(20);
+    editor->applyFontSettings();
+    settleLayout(query);
+    const int contentHeight = editor->textHeight(0) * editor->lines();
+    EXPECT_GT(editor->viewport()->height(), originalHeight);
+    EXPECT_GE(editor->viewport()->height(), contentHeight);
+    EXPECT_LE(editor->viewport()->height(), contentHeight + 12);
+    EXPECT_EQ(editor->text(), originalText);
+
+    // Shrinking the font must also discard the cached larger single-row height.
+    settings->setTextFontPointSize(12);
+    editor->applyFontSettings();
+    settleLayout(query);
+    EXPECT_EQ(editor->viewport()->height(), originalHeight);
+    EXPECT_GE(editor->viewport()->height(), editor->textHeight(0) * editor->lines());
+    EXPECT_EQ(editor->text(), originalText);
 }
 
 TEST_F(WorkspaceLayoutTest, FloatingResultsKeepContentAndRestoreTheChosenSplit)
@@ -256,6 +383,30 @@ TEST_F(WorkspaceLayoutTest, FloatingResultsKeepContentAndRestoreTheChosenSplit)
     EXPECT_TRUE(splitter->widget(1)->isVisible());
     EXPECT_EQ(splitter->sizes(), before);
     EXPECT_EQ(dock->widget(), content);
+}
+
+TEST_F(WorkspaceLayoutTest, RedockingAfterAnEditUsesTheNewContentHeight)
+{
+    QueryWidget query(&shell);
+    query.resize(1000, 760);
+    query.show();
+    settleLayout(query);
+    auto *dock = query.findChild<QueryWidget::CustomDockWidget *>();
+    auto *editor = query.findChild<RoboScintilla *>("queryEditor");
+    ASSERT_NE(dock, nullptr);
+    ASSERT_NE(editor, nullptr);
+    dock->setFloating(true);
+    settleLayout(query);
+
+    editor->setText(QString(8, '\n'));
+    settleLayout(query);
+    dock->close();
+    settleLayout(query);
+    EXPECT_TRUE(query.outputWindowDocked());
+    ASSERT_EQ(editor->lines(), 9);
+    const int contentHeight = editor->textHeight(0) * editor->lines();
+    EXPECT_GE(editor->viewport()->height(), contentHeight);
+    EXPECT_LE(editor->viewport()->height(), contentHeight + 12);
 }
 
 TEST_F(WorkspaceLayoutTest, FontChangesScaleRowSpacingAndPreserveTheDocument)

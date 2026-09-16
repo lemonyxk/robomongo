@@ -56,6 +56,9 @@ namespace Robomongo
         // Get output window's dock status
         bool outputWindowDocked() const;
 
+    protected:
+        bool eventFilter(QObject *object, QEvent *event) override;
+
     Q_SIGNALS:
         void titleChanged(const QString &text);
         void toolTipChanged(const QString &text);
@@ -84,6 +87,7 @@ namespace Robomongo
         void changeShellTimeout();
 
     private:        
+        void resizeScriptToContents();
         void updateCurrentTab();
         void displayData(const std::vector<MongoShellResult> &results, bool empty);
 

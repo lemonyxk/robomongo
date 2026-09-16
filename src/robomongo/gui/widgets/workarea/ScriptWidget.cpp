@@ -27,6 +27,8 @@
 
 namespace
 {
+    constexpr int MaximumVisibleQueryLines = 100;
+
     bool isCompletionChar(char32_t ch)
     {
         return QChar::isLetterOrNumber(ch) || ch == '_' || ch == '$' || ch == '.';
@@ -68,7 +70,7 @@ namespace
             }
             if (ch == '/' && next == '/') { lineComment = true; ++i; continue; }
             if (ch == '/' && next == '*') { blockComment = true; ++i; continue; }
-            if (ch == '/' && (previous.isNull() || QStringLiteral("([{:,=;!").contains(previous))) {
+            if (ch == '/' && (previous.isNull() || QStringLiteral("([{:,=;!?&|^~").contains(previous))) {
                 regex = true;
                 continue;
             }
@@ -98,6 +100,7 @@ namespace
             return true;
         int start = code.size();
         bool memberAccess = false;
+        char32_t firstCharacter = 0;
         while (start > 0) {
             const QChar last = code.at(start - 1);
             int width = 1;
@@ -108,10 +111,15 @@ namespace
             }
             if (!isCompletionChar(character))
                 break;
+            firstCharacter = character;
             memberAccess = memberAccess || character == '.';
             start -= width;
         }
         if (memberAccess)
+            return true;
+        // Global names such as rs, sh and ObjectId also need completion before
+        // a dot is typed. The runtime filters candidates using the full context.
+        if (QChar::isLetter(firstCharacter) || firstCharacter == '_' || firstCharacter == '$')
             return true;
         while (start > 0 && code.at(start - 1).isSpace())
             --start;
@@ -419,28 +427,38 @@ namespace Robomongo
         _queryText->setMinimumSize(0, 0);
         _queryText->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         _queryText->sciScintilla()->setMinimumSize(0, editorHeight(1));
-        _queryText->sciScintilla()->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        _queryText->sciScintilla()->setMaximumSize(QWIDGETSIZE_MAX, editorHeight(MaximumVisibleQueryLines));
         _queryText->sciScintilla()->setFocus();
     }
 
     int ScriptWidget::preferredHeight() const
     {
-        const int lines = qBound(1, _queryText->sciScintilla()->lines(), 18);
+        const int lines = qBound(1, _queryText->sciScintilla()->lines(), MaximumVisibleQueryLines);
         return minimumSizeHint().height() + (lines - 1) * lineHeight();
+    }
+
+    QSize ScriptWidget::sizeHint() const
+    {
+        return QSize(QWIDGETSIZE_MAX, preferredHeight());
     }
 
     void ScriptWidget::ui_queryLinesCountChanged()
     {
-        // Keep the query editor height in sync with the number of lines.
-        // Previously only the minimum height was updated while docked, which
-        // caused multiline queries to remain visually fixed at one line.
-        const int lines = qBound(1, _queryText->sciScintilla()->lines(), 18);
-        const int editorTotalHeight = editorHeight(lines);
-
-        _queryText->sciScintilla()->setMinimumHeight(editorTotalHeight);
-        _queryText->sciScintilla()->setMaximumHeight(editorTotalHeight);
-        _queryText->setMinimumHeight(editorTotalHeight);
-        _queryText->setMaximumHeight(editorTotalHeight);
+        // Keep a one-row minimum so a small window can scroll the document.
+        // QSplitter retains its sizes after updateGeometry(), so explicitly
+        // notify the query pane to apply the new content height as well.
+        _queryText->sciScintilla()->setMinimumHeight(editorHeight(1));
+        _queryText->sciScintilla()->setMaximumHeight(editorHeight(MaximumVisibleQueryLines));
+        _queryText->setMinimumSize(0, 0);
+        _queryText->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        _queryText->layout()->invalidate();
+        // The outer layout also caches FindFrame's minimum size. Refresh that
+        // widget item before preferredHeight() reads the new single-row height.
+        _queryText->updateGeometry();
+        layout()->invalidate();
+        setMaximumHeight(minimumSizeHint().height() + (MaximumVisibleQueryLines - 1) * lineHeight());
+        updateGeometry();
+        emit preferredHeightChanged();
     }
 
     void ScriptWidget::onFontSettingsChanged()

@@ -72,6 +72,41 @@ test('persistent mongosh context, BSON, output, autocomplete, interruption and r
     const callable = await rpc('autocomplete', { code: 'ObjectI', tokenOnly: true, functionCalls: true });
     assert.ifError(callable.error);
     assert.deepEqual(callable.result.completions, ['ObjectId()']);
+    for (const [code, expected] of [
+      ['r', 'rs'], ['s', 'sh'], ['rs.', 'rs.status()'], ['rs.st', 'rs.status()'],
+      ['rs.co', 'rs.conf()'], ['rs.co', 'rs.config()'], ['sh.st', 'sh.status()'],
+      ['JSON.pa', 'JSON.parse()'], ['Math.ma', 'Math.max()'], ['Math.P', 'Math.PI'],
+      ['EJSON.pa', 'EJSON.parse()'], ['printj', 'printjson()'], ['parseIn', 'parseInt()']
+    ]) {
+      const response = await rpc('autocomplete', { code, tokenOnly: true, functionCalls: true });
+      assert.ifError(response.error);
+      assert.ok(response.result.completions.includes(expected), `${code}: ${JSON.stringify(response.result)}`);
+    }
+    // Completion inspects the live shell's prototype methods without invoking
+    // rs/sh commands; this worker has no database connection.
+    assert.ifError((await rpc('eval', { code: `
+      var completionMemberEffects = 0;
+      var completionHelper = {
+        run() { completionMemberEffects++; },
+        get nested() { completionMemberEffects++; return { run() {} }; },
+        proxy: new Proxy({}, {
+          ownKeys() { completionMemberEffects++; throw new Error('proxy enumerated'); },
+          getPrototypeOf() { completionMemberEffects++; throw new Error('proxy inspected'); }
+        })
+      };
+    ` })).error);
+    const member = await rpc('autocomplete', { code: 'completionHelper.r', tokenOnly: true, functionCalls: true });
+    assert.ifError(member.error);
+    assert.deepEqual(member.result.completions, ['completionHelper.run()']);
+    for (const code of ['completionHelper.nested.', 'completionHelper.proxy.', 'completionHelper.run().',
+      'const pattern = true ? /Obj', 'x && /Obj']) {
+      const response = await rpc('autocomplete', { code, tokenOnly: true, functionCalls: true });
+      assert.ifError(response.error);
+      assert.deepEqual(response.result.completions, [], code);
+    }
+    const memberEffects = await rpc('eval', { code: 'completionMemberEffects' });
+    assert.ifError(memberEffects.error);
+    assert.equal(memberEffects.result.results[0].output, '0', 'member completion must not execute shell code');
     // defineProperty returns globalThis; do not serialize the whole shell during setup.
     assert.ifError((await rpc('eval', { code: 'var completionGetterCalls = 0; void Object.defineProperty(globalThis, "completionGetter", { configurable: true, get() { completionGetterCalls++; return function() {}; } });' })).error);
     const accessor = await rpc('autocomplete', { code: 'completionGetter', tokenOnly: true, functionCalls: true });

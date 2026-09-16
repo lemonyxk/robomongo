@@ -4,6 +4,7 @@
 // a bounded lexer and cached metadata; database work only runs in the background.
 const LIMITS = Object.freeze({ input: 32768, documents: 20, fields: 512, depth: 6,
   arrayItems: 3, nodes: 2048, entries: 64, suggestions: 200, fieldLength: 256 });
+const { isProxy } = require('node:util').types;
 const words = (s) => s.split(' ');
 const DATABASE = words('getCollection getCollectionNames getCollectionInfos getSiblingDB getName getMongo createCollection dropDatabase runCommand adminCommand aggregate stats version serverStatus currentOp killOp watch');
 const COLLECTION = words('find findOne aggregate countDocuments estimatedDocumentCount distinct insertOne insertMany updateOne updateMany replaceOne deleteOne deleteMany findOneAndUpdate findOneAndReplace findOneAndDelete bulkWrite createIndex createIndexes getIndexes dropIndex dropIndexes drop stats renameCollection watch explain validate');
@@ -12,7 +13,7 @@ const methodCandidates = (names) => names.map((name) => ({ name, callable: true 
 const DATABASE_METHODS = methodCandidates(DATABASE);
 const COLLECTION_METHODS = methodCandidates(COLLECTION);
 const CURSOR_METHODS = methodCandidates(CURSOR);
-const GLOBALS = words('db ObjectId ISODate Date NumberInt NumberLong NumberDecimal Decimal128 UUID BinData BSONRegExp Timestamp MinKey MaxKey DBRef EJSON JSON Math print printjson load use show help');
+const GLOBALS = words('db rs sh ObjectId ISODate Date NumberInt NumberLong NumberDecimal Decimal128 UUID BinData BSONRegExp Timestamp MinKey MaxKey DBRef EJSON JSON Math print printjson load use show help');
 const LOGICAL = words('$and $or $nor $expr $text $where $jsonSchema $comment');
 const FILTER = words('$eq $ne $gt $gte $lt $lte $in $nin $exists $type $regex $options $all $elemMatch $size $not $mod $bitsAllClear $bitsAllSet $bitsAnyClear $bitsAnySet $geoWithin $geoIntersects $near $nearSphere');
 const UPDATE = words('$set $unset $inc $mul $min $max $rename $setOnInsert $currentDate $addToSet $pop $pull $push $pullAll $bit');
@@ -23,6 +24,58 @@ const keyIdentifier = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
 const identifierCharacter = /[\p{L}\p{N}_$]/u;
 const tokenCharacter = /[\p{L}\p{N}_$.]/u;
 const metadataKey = (database, collection = '') => JSON.stringify([database, collection]);
+
+// Inspect only data descriptors, including class prototypes (rs/sh methods are
+// non-enumerable). Proxy traps, accessors and user functions must never run while
+// typing. Intrinsics are captured once before the shell evaluates user code.
+function createGlobalCompletions(context, intrinsics = {}) {
+  const isObject = (value) => value !== null && (typeof value === 'object' || typeof value === 'function');
+  const publicName = (name) => keyIdentifier.test(name) && !name.startsWith('_') && name !== 'constructor';
+  const globalDescriptor = (name) => Object.getOwnPropertyDescriptor(context, name) ||
+    Object.getOwnPropertyDescriptor(intrinsics, name)?.value;
+  function descriptorOf(value, name) {
+    for (let depth = 0; depth < LIMITS.depth && isObject(value); ++depth) {
+      if (isProxy(value)) return;
+      const descriptor = Object.getOwnPropertyDescriptor(value, name);
+      if (descriptor) return descriptor;
+      value = Object.getPrototypeOf(value);
+    }
+  }
+  return {
+    getGlobals: () => [...new Set([...Object.getOwnPropertyNames(context), ...Object.keys(intrinsics)])]
+      .filter((name) => keyIdentifier.test(name)).slice(0, LIMITS.fields),
+    isGlobalFunction(name) {
+      const descriptor = globalDescriptor(name);
+      return !!descriptor && 'value' in descriptor && typeof descriptor.value === 'function';
+    },
+    getGlobalMembers(path) {
+      if (!Array.isArray(path) || !path.length || path.length > LIMITS.depth || !path.every(publicName)) return [];
+      let descriptor = globalDescriptor(path[0]);
+      for (let index = 1; index < path.length && descriptor && 'value' in descriptor; ++index)
+        descriptor = descriptorOf(descriptor.value, path[index]);
+      if (!descriptor || !('value' in descriptor)) return [];
+      let value = descriptor.value;
+      const candidates = [], seen = new Set();
+      let remaining = LIMITS.fields;
+      for (let depth = 0; depth < LIMITS.depth && isObject(value) && remaining > 0; ++depth) {
+        if (isProxy(value)) break;
+        const prototype = Object.getPrototypeOf(value);
+        // Do not crowd shell helpers with Object.prototype's generic methods.
+        if (depth > 0 && prototype === null) break;
+        for (const name of Object.getOwnPropertyNames(value)) {
+          if (--remaining < 0) break;
+          if (seen.has(name)) continue;
+          seen.add(name);
+          if (!publicName(name)) continue;
+          const member = Object.getOwnPropertyDescriptor(value, name);
+          candidates.push({ name, callable: !!member && 'value' in member && typeof member.value === 'function' });
+        }
+        value = prototype;
+      }
+      return candidates;
+    }
+  };
+}
 
 function collectFields(documents) {
   const fields = new Set();
@@ -97,7 +150,7 @@ function lex(code) {
       continue;
     }
     // Skip regex literals, including escaped slashes and character classes.
-    if (ch === '/' && (!tokens.length || /^(?:\(|\[|\{|:|,|=|!|;|return|throw|case|yield|await)$/.test(tokens.at(-1).value))) {
+    if (ch === '/' && (!tokens.length || /^(?:[([{:,=!;?&|+*%~<>^/-]|return|throw|case|yield|await|void|typeof|delete|in|instanceof)$/.test(tokens.at(-1).value))) {
       ++i;
       let inClass = false, closed = false;
       while (i < code.length) {
@@ -206,8 +259,13 @@ function analyze(code, database = '') {
           parent.literal = token.value;
       }
       if (member) {
-        expression = { kind: 'member', base: expression, name: token.value }; member = false;
-      } else expression = token.type === 'id' && token.value === 'db' ? { kind: 'db', database } : undefined;
+        // Keep one over-limit segment as a rejection marker, without repeatedly
+        // copying an arbitrarily long chain as the lexer advances.
+        expression = expression?.kind === 'global' ? { kind: 'global',
+          path: expression.path.length > LIMITS.depth ? expression.path : [...expression.path, token.value] } :
+          { kind: 'member', base: expression, name: token.value }; member = false;
+      } else expression = token.type !== 'id' ? undefined : token.value === 'db' ? { kind: 'db', database } :
+        { kind: 'global', path: [token.value] };
       continue;
     }
     if (token.value === '.') { member = true; continue; }
@@ -284,13 +342,13 @@ function analyze(code, database = '') {
     return { ...output, kind: 'collectionMethods', collection: parts.slice(1, -1).join('.'),
       typed: parts.at(-1), tokenHead: parts.slice(0, -1).join('.') + '.' };
   }
-  if (trailing.startsWith('.') && expression) {
+  if (trailing.startsWith('.') && expression && expression.kind !== 'global') {
     const target = collectionOf(expression);
     return { ...output, kind: expression.kind === 'db' ? 'database' : target?.kind === 'cursor' ? 'cursorMethods' :
       target ? 'collectionMethods' : 'none', database: expression.database, collection: target?.collection,
     typed: trailing.slice(1), tokenHead: '.' };
   }
-  if (member && expression) {
+  if (member && expression && expression.kind !== 'global') {
     const target = collectionOf(expression);
     return { ...output, kind: expression.kind === 'db' ? 'database' : target?.kind === 'cursor' ? 'cursorMethods' :
       target ? 'collectionMethods' : 'none', database: expression.database, collection: target?.collection,
@@ -300,11 +358,25 @@ function analyze(code, database = '') {
     return { ...output, kind: 'keys', role: parent.role, path: parent.path, typed: trailing };
   }
   if (parent?.awaitColon) return output;
+  if (trailing.includes('.') || member) {
+    const parts = trailing.split('.');
+    const path = parts.slice(0, -1);
+    if (trailing.startsWith('.') || member) {
+      if (expression?.kind !== 'global') return output;
+      if (trailing.startsWith('.')) path.shift();
+      path.unshift(...expression.path);
+    }
+    if (path.length && path.length <= LIMITS.depth && path.every((name) => keyIdentifier.test(name)))
+      return { ...output, kind: 'globalMembers', path, typed: parts.at(-1),
+        tokenHead: trailing.slice(0, trailing.length - parts.at(-1).length) };
+    return output;
+  }
   if (!trailing.includes('.')) return { ...output, kind: 'globals', typed: trailing };
   return output;
 }
 
-function createAutocomplete({ getDatabase = () => '', getGlobals = () => [], isGlobalFunction = () => false, loadFields,
+function createAutocomplete({ getDatabase = () => '', getGlobals = () => [], isGlobalFunction = () => false,
+  getGlobalMembers = () => [], loadFields,
   loadCollections, now = Date.now, ttlMS = 60000, negativeTTLMS = 10000,
   timeoutMS = 300, maxEntries = LIMITS.entries } = {}) {
   const cache = new Map();
@@ -380,6 +452,7 @@ function createAutocomplete({ getDatabase = () => '', getGlobals = () => [], isG
     else if (info.kind === 'fields') candidates = fields();
     else if (info.kind === 'references') candidates = [...fields().map((field) => '$' + field), '$$ROOT', '$$CURRENT', '$$NOW', '$$REMOVE'];
     else if (info.kind === 'globals') candidates = [...GLOBALS, ...getGlobals().slice(0, 512)];
+    else if (info.kind === 'globalMembers') candidates = getGlobalMembers(info.path).slice(0, LIMITS.fields);
     else if (info.kind === 'keys') {
       const names = () => info.path ? fields().filter((field) => field.startsWith(info.path + '.')).map((field) => field.slice(info.path.length + 1)) : fields();
       if (info.role === 'query') candidates = [...names(), ...LOGICAL];
@@ -438,4 +511,4 @@ function createAutocomplete({ getDatabase = () => '', getGlobals = () => [], isG
   };
 }
 
-module.exports = { createAutocomplete, analyze, collectFields, LIMITS };
+module.exports = { createAutocomplete, createGlobalCompletions, analyze, collectFields, LIMITS };

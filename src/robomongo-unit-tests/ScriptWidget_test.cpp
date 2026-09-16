@@ -309,16 +309,69 @@ TEST_F(ScriptWidgetTest, AutomaticFieldCompletionContinuesAfterBraceCommaAndWhit
     }
 }
 
-TEST_F(ScriptWidgetTest, AutomaticCompletionRejectsBareIdentifiersAndLiteralValues)
+TEST_F(ScriptWidgetTest, AutomaticCompletionOffersGlobalObjectsAndFunctions)
 {
-    const QStringList contexts{"Obj|", "const value = Obj|", "db.users.find({active: tr|})"};
+    const QStringList contexts{
+        "r|", "s|", "Obj|", "pri|", "const value = Obj|",
+        "db.users.find({_id: Obj|})", "db.users.find({count: NumberL|})",
+        "rs.status();\nObj|", "print(Obj|)", "customHe|"};
+    const QStringList candidates{
+        "rs", "sh", "ObjectId()", "print()", "ObjectId()",
+        "ObjectId()", "NumberLong()", "ObjectId()", "ObjectId()", "customHelper()"};
+    for (int i = 0; i < contexts.size(); ++i) {
+        SCOPED_TRACE(contexts.at(i).toStdString());
+        const QString prefix = typeLastCharacter(contexts.at(i));
+        fireCompletionTimer();
+        reply(prefix, {candidates.at(i)});
+        EXPECT_TRUE(completer->popup()->isVisible());
+    }
+}
+
+TEST_F(ScriptWidgetTest, AutomaticCompletionOffersGlobalObjectMethods)
+{
+    const QStringList contexts{"rs.|", "rs.st|", "sh.en|", "JSON.str|", "Math.ma|"};
+    const QStringList candidates{
+        "rs.status()", "rs.status()", "sh.enableSharding()", "JSON.stringify()", "Math.max()"};
+    for (int i = 0; i < contexts.size(); ++i) {
+        SCOPED_TRACE(contexts.at(i).toStdString());
+        const QString prefix = typeLastCharacter(contexts.at(i));
+        fireCompletionTimer();
+        reply(prefix, {candidates.at(i)});
+        EXPECT_TRUE(completer->popup()->isVisible());
+    }
+}
+
+TEST_F(ScriptWidgetTest, AutomaticGlobalCompletionSkipsCommentsRegexTemplatesAndNumbers)
+{
+    const QStringList contexts{
+        "// rs|", "/* Obj|", "const pattern = /rs|",
+        "const pattern = true ? /Obj|", "const pattern = value && /Obj|",
+        "const text = `Obj|", "123|"};
     for (const QString &context : contexts) {
         SCOPED_TRACE(context.toStdString());
         const QString prefix = typeLastCharacter(context);
         fireCompletionTimer();
-        reply(prefix, {"ObjectId", "true"});
+        reply(prefix, {"rs", "ObjectId()"});
         EXPECT_FALSE(completer->popup()->isVisible());
     }
+}
+
+TEST_F(ScriptWidgetTest, AutomaticGlobalCompletionWithoutMatchingNamesStaysClosed)
+{
+    const QString prefix = typeLastCharacter("db.users.find({active: tr|})");
+    fireCompletionTimer();
+    reply(prefix, {});
+    EXPECT_FALSE(completer->popup()->isVisible());
+}
+
+TEST_F(ScriptWidgetTest, AutomaticGlobalMethodAcceptancePreservesArgumentsAndCaret)
+{
+    const QString prefix = typeLastCharacter("rs.st|atus({initialSync: 1})");
+    fireCompletionTimer();
+    reply(prefix, {"rs.status()"});
+    accept("rs.status()");
+    EXPECT_EQ(script->text(), "rs.status({initialSync: 1})");
+    expectCaretAfter("rs.status(");
 }
 
 TEST_F(ScriptWidgetTest, ClosedQuotesAndBracesDoNotAutomaticallyOfferGlobals)
@@ -337,7 +390,7 @@ TEST_F(ScriptWidgetTest, ClosedQuotesAndBracesDoNotAutomaticallyOfferGlobals)
 
 TEST_F(ScriptWidgetTest, ManualCompletionBypassesAutomaticContextGate)
 {
-    const QString prefix = request("Obj|");
+    const QString prefix = request("const value = |");
     reply(prefix, {"ObjectId"});
     EXPECT_TRUE(completer->popup()->isVisible());
 }
