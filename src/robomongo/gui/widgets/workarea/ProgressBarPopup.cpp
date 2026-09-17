@@ -14,7 +14,7 @@ namespace Robomongo
         setObjectName("queryProgress");
         setAccessibleName(tr("Query in progress"));
         setStyleSheet(
-            "QFrame#queryProgress { background: white; border: 1px solid #dce3ec; border-radius: 8px; }"
+            "QFrame#queryProgress { background: #ffffff; border: 1px solid #d6d6d6; border-radius: 8px; }"
             "QFrame#queryProgress QLabel { background: transparent; border: none; }"
         );
 

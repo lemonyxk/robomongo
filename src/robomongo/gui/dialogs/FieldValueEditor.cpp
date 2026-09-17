@@ -4,16 +4,16 @@
 #include <QCloseEvent>
 #include <QDialogButtonBox>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPlainTextEdit>
+#include <QMouseEvent>
 #include <QPointer>
 #include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QShortcut>
+#include <QSizeGrip>
 #include <QShowEvent>
 #include <QTextDocument>
 #include <QTimer>
@@ -25,6 +25,8 @@
 #include "robomongo/core/settings/SettingsManager.h"
 #include "robomongo/core/utils/BsonUtils.h"
 #include "robomongo/gui/GuiRegistry.h"
+#include "robomongo/gui/editors/PlainJavaScriptEditor.h"
+#include "robomongo/gui/editors/JSLexer.h"
 
 namespace Robomongo
 {
@@ -36,34 +38,34 @@ namespace Robomongo
         setObjectName("fieldValueEditor");
         setWindowTitle(tr("Edit Field"));
         setWindowModality(Qt::NonModal);
-        setAttribute(Qt::WA_TranslucentBackground);
+        setAttribute(Qt::WA_TranslucentBackground, false);
         setStyleSheet(QStringLiteral(R"qss(
-QDialog#fieldValueEditor { background: transparent; }
-QFrame#fieldEditorCard { background: white; border: 1px solid #d4dde8; border-radius: 10px; }
+QDialog#fieldValueEditor { background: #efefef; border: 1px solid #c8c8c8; border-radius: 6px; }
+QFrame#fieldEditorCard { background: #efefef; border: none; border-radius: 6px; }
 QScrollArea#fieldEditorScroll, QWidget#fieldEditorBody { background: transparent; border: none; }
-QLabel#fieldEditTitle { color: #243247; }
-QLabel#fieldPath { color: #52657a; }
-QLabel#fieldType { background: #e1f0ea; color: #195c4d; border-radius: 5px; padding: 3px 8px; }
-QLabel#fieldValueLabel, QLabel#fieldEditHint { color: #68788e; }
-QPlainTextEdit#fieldValueInput {
-    background: #f7f9fc; color: #243247; border: 1px solid #d4dde8; border-radius: 6px;
-    padding: 8px; selection-background-color: #247c68; selection-color: white;
+QLabel#fieldEditTitle { color: #333333; }
+QLabel#fieldPath { color: #555555; }
+QLabel#fieldType { background: transparent; color: #555555; padding: 3px 0; }
+QLabel#fieldValueLabel, QLabel#fieldEditHint { color: #555555; }
+QFrame#fieldValueInput {
+    background: transparent; color: #333333; border: none;
+    selection-background-color: #dedede; selection-color: #333333;
 }
-QPlainTextEdit#fieldValueInput:focus { background: white; border-color: #247c68; }
-QLabel#fieldEditError { background: #fff1f0; color: #b43939; border-radius: 5px; padding: 7px 9px; }
-QDialogButtonBox#fieldEditButtons QPushButton { min-width: 70px; padding: 6px 12px; border-radius: 5px; }
-QPushButton#fieldConfirm { background: #247c68; color: white; border: 1px solid #247c68; }
-QPushButton#fieldConfirm:hover { background: #1c6a59; border-color: #1c6a59; }
-QPushButton#fieldConfirm:disabled { background: #dceee7; color: #68788e; border-color: #dceee7; }
+QFrame#fieldValueInput:focus { background: #ffffff; border-color: #999999; }
+QLabel#fieldEditError { background: #f4eaea; color: #8c3f47; border-radius: 4px; padding: 7px 9px; }
+QDialogButtonBox#fieldEditButtons QPushButton {
+    background: #ffffff; color: #333333; border: 1px solid #d6d6d6;
+    min-width: 70px; padding: 6px 12px; border-radius: 3px;
+}
+QDialogButtonBox#fieldEditButtons QPushButton:default { background: #ededed; border-color: #aaaaaa; }
+QDialogButtonBox#fieldEditButtons QPushButton:hover { background: #f7f7f7; border-color: #999999; }
+QDialogButtonBox#fieldEditButtons QPushButton:pressed { background: #dedede; border-color: #999999; }
+QDialogButtonBox#fieldEditButtons QPushButton:focus { border-color: #999999; }
+QDialogButtonBox#fieldEditButtons QPushButton:disabled { background: #ededea; color: #777777; border-color: #d5d5d1; }
 )qss"));
 
         auto *card = new QFrame(this);
         card->setObjectName("fieldEditorCard");
-        auto *shadow = new QGraphicsDropShadowEffect(card);
-        shadow->setBlurRadius(20);
-        shadow->setOffset(0, 4);
-        shadow->setColor(QColor(36, 50, 71, 36));
-        card->setGraphicsEffect(shadow);
         _body = new QWidget(card);
         _body->setObjectName("fieldEditorBody");
 
@@ -93,23 +95,42 @@ QPushButton#fieldConfirm:disabled { background: #dceee7; color: #68788e; border-
         heading->addStretch();
         heading->addWidget(type);
 
-        _input = new QPlainTextEdit(_body);
+        _input = new RoboScintilla(_body);
         _input->setObjectName("fieldValueInput");
-        _input->setTabChangesFocus(true);
         _input->setFont(GuiRegistry::instance().font());
+
+        auto *lexer = new JSLexer(_input);
+        lexer->setDefaultColor(QColor("#262626"));
+        _input->setLexer(lexer);
+        _input->setMarginsForegroundColor(QColor("#666666"));
+        _input->setCaretForegroundColor(QColor("#262626"));
+        _input->setSelectionBackgroundColor(QColor("#dcdcd7"));
+        _input->setSelectionForegroundColor(QColor("#202020"));
+        _input->setAppropriateBraceMatching();
+        _input->setAutoIndent(true);
+        _input->setIndentationWidth(4);
+        _input->setIndentationsUseTabs(false);
+        _input->setIndentationGuides(true);
+        _input->setCaretLineVisible(true);
+        _input->setFolding(QsciScintilla::BoxedTreeFoldStyle);
+        _input->setWrapMode(QsciScintilla::WrapNone);
         if (original.type() == mongo::String)
-            _input->setPlainText(QString::fromStdString(original.String()));
+            _input->setText(QString::fromStdString(original.String()));
         else if (original.type() == mongo::NumberDecimal)
-            _input->setPlainText(QString::fromStdString(original.numberDecimal().toString()));
+            _input->setText(QString::fromStdString(original.numberDecimal().toString()));
         else
-            _input->setPlainText(QString::fromStdString(BsonUtils::jsonString(original,
+            _input->setText(QString::fromStdString(BsonUtils::jsonString(original,
                 mongo::TenGen, false, 1, settings->uuidEncoding(), settings->timeZone(), false, true)));
-        _initialText = _input->toPlainText();
+        _initialText = _input->text();
         const bool structured = original.type() == mongo::Object || original.type() == mongo::Array;
-        const int lines = qBound(structured ? 5 : 2, _input->document()->blockCount(), 8);
-        _input->setMinimumHeight(64);
+        if (structured) {
+            _input->setIndentationWidth(4);
+            _input->setAutoIndent(true);
+        }
+        const int lines = qBound(structured ? 6 : 3, _input->lines(), 12);
         const int lineHeight = _input->fontMetrics().lineSpacing();
-        _input->setFixedHeight(qMax(lineHeight + 22, qBound(64, lines * lineHeight + 22, 240)));
+        _input->setMinimumHeight(qMax(120, qBound(120, lines * lineHeight + 28, 320)));
+        _input->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         _input->setAccessibleName(tr("Field value"));
 
         auto *valueLabel = new QLabel(original.type() == mongo::String
@@ -152,33 +173,69 @@ QPushButton#fieldConfirm:disabled { background: #dceee7; color: #68788e; border-
         content->addWidget(path);
         content->addSpacing(2);
         content->addWidget(valueLabel);
-        content->addWidget(_input);
+        content->addWidget(_input, 1);
         content->addWidget(_error);
         content->addWidget(_hint);
+        content->setAlignment(Qt::AlignTop);
 
         _scrollArea = new QScrollArea(card);
         _scrollArea->setObjectName("fieldEditorScroll");
         _scrollArea->setFrameShape(QFrame::NoFrame);
         _scrollArea->setWidgetResizable(true);
         _scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        _scrollArea->setAlignment(Qt::AlignTop);
         _scrollArea->setWidget(_body);
         _scrollArea->setMinimumSize(0, 0);
         auto *cardLayout = new QVBoxLayout(card);
-        cardLayout->setContentsMargins(18, 16, 18, 16);
+        cardLayout->setContentsMargins(16, 16, 16, 16);
         cardLayout->setSpacing(10);
         cardLayout->setSizeConstraint(QLayout::SetNoConstraint);
         cardLayout->addWidget(_scrollArea, 1);
         // Confirmation and cancellation stay reachable while the content scrolls.
         cardLayout->addWidget(_buttons);
 
-        auto *layout = new QVBoxLayout(this);
-        layout->setContentsMargins(12, 8, 12, 16);
+    auto *layout = new QVBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
         layout->setSizeConstraint(QLayout::SetNoConstraint);
         layout->addWidget(card);
         _preferredWidth = qBound(440, fontMetrics().height() * 28, 720);
-        resize(_preferredWidth, sizeHint().height());
+        const int editorLines = qMax(1, _input->lines());
+        const int editorLineHeight = _input->fontMetrics().lineSpacing();
+        const int preferredHeight = qBound(360, editorLines * editorLineHeight + 250, 760);
+        resize(_preferredWidth, preferredHeight);
         qApp->installEventFilter(this);
         _input->setFocus();
+    }
+
+    void FieldValueEditor::mousePressEvent(QMouseEvent *event)
+    {
+        if (event->button() == Qt::LeftButton) {
+            _dragging = true;
+            _dragPosition = event->globalPosition().toPoint() - frameGeometry().topLeft();
+            event->accept();
+            return;
+        }
+
+        QDialog::mousePressEvent(event);
+    }
+
+    void FieldValueEditor::mouseMoveEvent(QMouseEvent *event)
+    {
+        if (_dragging && (event->buttons() & Qt::LeftButton)) {
+            move(event->globalPosition().toPoint() - _dragPosition);
+            event->accept();
+            return;
+        }
+
+        QDialog::mouseMoveEvent(event);
+    }
+
+    void FieldValueEditor::mouseReleaseEvent(QMouseEvent *event)
+    {
+        if (event->button() == Qt::LeftButton)
+            _dragging = false;
+
+        QDialog::mouseReleaseEvent(event);
     }
 
     void FieldValueEditor::showAt(const QRect &anchor)
@@ -270,7 +327,7 @@ QPushButton#fieldConfirm:disabled { background: #dceee7; color: #68788e; border-
 
     mongo::BSONObj FieldValueEditor::parseValue() const
     {
-        const QString input = _input->toPlainText();
+        const QString input = _input->text();
         const QString trimmed = input.trimmed();
         mongo::BSONObjBuilder builder;
         // QTextDocument normalizes line separators. Confirming an unchanged

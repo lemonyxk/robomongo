@@ -20,7 +20,7 @@ namespace
         QPushButton *button = new QPushButton;
         button->setIcon(icon);
         button->setIconSize(QSize(16, 16));
-        button->setFixedSize(28, 28);
+        button->setFixedSize(24, 24);
         button->setFlat(true);
         button->setToolTip(description);
         button->setAccessibleName(description);
@@ -36,10 +36,14 @@ namespace Robomongo
     {
         setObjectName("resultPaging");
         setStyleSheet(
-            "QWidget#resultPaging QLineEdit { background: white; color: #243247;"
-                "border: 1px solid #dce3ec; border-radius: 4px; padding: 2px 5px; min-height: 0; }"
-            "QWidget#resultPaging QLineEdit:focus { border-color: #247c68; }"
-            "QWidget#resultPaging QPushButton { padding: 0; min-width: 0; min-height: 0; }"
+            "QWidget#resultPaging QLineEdit { background: #ffffff; color: #444444;"
+                "border: 1px solid #d6d6d6; border-radius: 0; padding: 1px 4px; min-height: 0; }"
+            "QWidget#resultPaging QLineEdit:focus { border-color: #999999; }"
+            "QWidget#resultPaging QPushButton { padding: 0; min-width: 0; min-height: 0;"
+                "background: transparent; border: 1px solid transparent; border-radius: 2px; }"
+            "QWidget#resultPaging QPushButton:hover { background: #eeeeee; }"
+            "QWidget#resultPaging QPushButton:pressed { background: #dedede; }"
+            "QWidget#resultPaging QPushButton:focus { border-color: #999999; }"
         );
         _skipEdit = new QLineEdit(this);
         _batchSizeEdit = new QLineEdit(this);
@@ -64,8 +68,9 @@ namespace Robomongo
         batchValidator->setLocale(inputLocale);
         _skipEdit->setValidator(skipValidator);
         _batchSizeEdit->setValidator(batchValidator);
-        _skipEdit->setFixedSize(width, 26);
-        _batchSizeEdit->setFixedSize(width, 26);
+        const int height = qMax(22, _skipEdit->fontMetrics().height() + 4);
+        _skipEdit->setFixedSize(width, height);
+        _batchSizeEdit->setFixedSize(width, height);
 
         _leftButton = createButtonWithIcon(GuiRegistry::instance().leftIcon(), tr("Previous page"));
         _rightButton = createButtonWithIcon(GuiRegistry::instance().rightIcon(), tr("Next page"));
@@ -77,7 +82,7 @@ namespace Robomongo
         connect(_batchSizeEdit, &QLineEdit::textChanged, this, [this]() { updateNavigation(); });
 
         auto *layout = new QHBoxLayout(this);
-        layout->setSpacing(4);
+        layout->setSpacing(3);
         layout->setContentsMargins(0, 0, 0, 0);
         layout->addWidget(_leftButton);
         layout->addWidget(_skipEdit);

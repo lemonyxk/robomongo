@@ -61,14 +61,14 @@ namespace Robomongo
     {
         PendingMessage entry;
         entry.timestamp = QTime::currentTime().toString("HH:mm:ss") + "  ";
-        entry.color = QColor("#243247");
+        entry.color = QColor("#444444");
 
         if (level == mongo::logger::LogSeverity::Error())
-            entry.color = QColor("#bd4052");
+            entry.color = QColor("#a6535c");
         else if (level == mongo::logger::LogSeverity::Log())
-            entry.color = QColor("#748398");
+            entry.color = QColor("#707070");
         else if (level == mongo::logger::LogSeverity::Warning())
-            entry.color = QColor("#996515");
+            entry.color = QColor("#8b704a");
 
         const int maxLength = 500;
         if (message.length() <= maxLength) {
@@ -97,7 +97,7 @@ namespace Robomongo
         QTextCursor cursor(_logTextEdit->document());
         cursor.movePosition(QTextCursor::End);
         QTextCharFormat timestampFormat;
-        timestampFormat.setForeground(QColor("#8794a7"));
+        timestampFormat.setForeground(QColor("#707070"));
 
         // One document/layout update per batch; yield between large bursts.
         cursor.beginEditBlock();

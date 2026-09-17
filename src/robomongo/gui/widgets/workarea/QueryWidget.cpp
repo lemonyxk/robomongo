@@ -70,6 +70,8 @@ namespace Robomongo
         _dock(nullptr),
         _isTextChanged(false)
     {
+        setObjectName("queryWidget");
+        setAttribute(Qt::WA_StyledBackground, true);
         AppRegistry::instance().bus()->subscribe(this, DocumentListLoadedEvent::Type, shell);
         AppRegistry::instance().bus()->subscribe(this, ScriptExecutedEvent::Type, shell);
         AppRegistry::instance().bus()->subscribe(this, AutocompleteResponse::Type, shell);
@@ -96,7 +98,7 @@ namespace Robomongo
         _outputWindow->addDockWidget(Qt::BottomDockWidgetArea, _dock);
 
         _outputLabel = new QLabel(this);
-        _outputLabel->setContentsMargins(0, 5, 0, 0);
+        _outputLabel->setContentsMargins(6, 3, 6, 3);
         _outputLabel->setVisible(false);
 
         _outputPanel = new QWidget(this);
@@ -109,7 +111,7 @@ namespace Robomongo
         _splitter = new QSplitter(Qt::Vertical, this);
         _splitter->setObjectName("queryResultSplitter");
         _splitter->setChildrenCollapsible(false);
-        _splitter->setHandleWidth(5);
+        _splitter->setHandleWidth(3);
         // Result views can be large. Commit resize when a drag ends, avoiding
         // repeated table layouts/JSON viewport repaints on every mouse movement.
         _splitter->setOpaqueResize(false);

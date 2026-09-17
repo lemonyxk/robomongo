@@ -49,7 +49,7 @@ namespace
         helpLabel->setContentsMargins(marginLeft, marginTop, marginRight, marginBottom);
 
         QPalette palette = helpLabel->palette();
-        palette.setColor(QPalette::WindowText, QColor(110, 110, 110));
+        palette.setColor(QPalette::WindowText, QColor("#6d6d6d"));
         helpLabel->setPalette(palette);
 
         return helpLabel;
@@ -65,7 +65,7 @@ namespace
         findFrame->sciScintilla()->setTabWidth(4);
         findFrame->sciScintilla()->setAppropriateBraceMatching();
         findFrame->sciScintilla()->setFont(textFont);
-        findFrame->sciScintilla()->setStyleSheet("QFrame {background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
+        findFrame->sciScintilla()->setStyleSheet("QFrame {background-color: #ffffff; border: 1px solid #d6d6d6; border-radius: 4px; margin: 0px; padding: 0px;}");
         findFrame->sciScintilla()->setText(text);
         findFrame->setMaximumHeight(120);
         return findFrame;

@@ -42,6 +42,21 @@ namespace Robomongo
         _info(info),
         _readonly(readonly)
     {
+        setObjectName("documentTextEditor");
+        setStyleSheet(QStringLiteral(R"qss(
+QDialog#documentTextEditor { background: #f2f2f0; color: #262626; }
+QDialog#documentTextEditor QLabel, QDialog#documentTextEditor QCheckBox { color: #4d4d4d; }
+QDialog#documentTextEditor QLineEdit {
+    background: #fcfcfa; color: #262626; border-color: #d0d0cd;
+    selection-background-color: #dcdcd7; selection-color: #202020;
+}
+QDialog#documentTextEditor QLineEdit:focus { border-color: #999994; }
+QDialog#documentTextEditor QPushButton { background: #f7f7f5; color: #262626; border-color: #d0d0cd; }
+QDialog#documentTextEditor QPushButton:hover { background: #e7e7e3; border-color: #999999; }
+QDialog#documentTextEditor QPushButton:pressed { background: #dcdcd7; }
+QDialog#documentTextEditor QPushButton:default, QDialog#documentTextEditor QPushButton:focus { border-color: #999994; }
+QDialog#documentTextEditor QPushButton:disabled { background: #ededea; color: #777777; border-color: #dcdcd7; }
+)qss"));
         QRect screenGeometry = screen()->availableGeometry();
         int horizontalMargin = (int)(screenGeometry.width() * 0.35);
         int verticalMargin = (int)(screenGeometry.height() * 0.20);
@@ -63,6 +78,9 @@ namespace Robomongo
         Indicator *collectionIndicator = new Indicator(GuiRegistry::instance().collectionIcon(), QtUtils::toQString(_info._ns.collectionName()));
         Indicator *databaseIndicator = new Indicator(GuiRegistry::instance().databaseIcon(), QtUtils::toQString(_info._ns.databaseName()));
         Indicator *serverIndicator = new Indicator(GuiRegistry::instance().serverIcon(), QtUtils::toQString(detail::prepareServerAddress(_info._serverAddress)));
+        collectionIndicator->setTextColor(QColor("#4d4d4d"));
+        databaseIndicator->setTextColor(QColor("#4d4d4d"));
+        serverIndicator->setTextColor(QColor("#4d4d4d"));
 
         QPushButton *validate = new QPushButton("Validate");
         validate->setIcon(qApp->style()->standardIcon(QStyle::SP_MessageBoxInformation));
@@ -227,17 +245,59 @@ namespace Robomongo
     void DocumentTextEditor::_configureQueryText()
     {
         QsciLexerJavaScript *javaScriptLexer = new JSLexer(this);
+        // Scintilla paints token backgrounds itself, independently of the frame
+        // stylesheet. Keep these overrides local to Edit/View Document.
+        const QColor paper("#fcfcfa");
+        const QColor text("#262626");
+        javaScriptLexer->setDefaultPaper(paper);
+        javaScriptLexer->setPaper(paper);
+        javaScriptLexer->setDefaultColor(text);
+        javaScriptLexer->setColor(text);
+        javaScriptLexer->setColor(text, QsciScintillaBase::STYLE_DEFAULT);
+        for (int style : {QsciLexerJavaScript::Comment, QsciLexerJavaScript::CommentLine,
+                          QsciLexerJavaScript::CommentDoc, QsciLexerJavaScript::CommentLineDoc})
+            javaScriptLexer->setColor(QColor("#555555"), style);
+        for (int style : {QsciLexerJavaScript::DoubleQuotedString, QsciLexerJavaScript::SingleQuotedString,
+                          QsciLexerJavaScript::RawString})
+            javaScriptLexer->setColor(QColor("#365442"), style);
+        javaScriptLexer->setColor(QColor("#665034"), QsciLexerJavaScript::Number);
+        javaScriptLexer->setColor(QColor("#52435f"), QsciLexerJavaScript::Keyword);
+        javaScriptLexer->setColor(QColor("#614451"), QsciLexerJavaScript::Regex);
+        javaScriptLexer->setColor(QColor("#8c3f47"), QsciLexerJavaScript::UnclosedString);
+        javaScriptLexer->setColor(QColor("#8c3f47"), QsciLexerJavaScript::CommentDocKeywordError);
         QFont font = GuiRegistry::instance().font();
         javaScriptLexer->setFont(font);
         _queryText->sciScintilla()->setAppropriateBraceMatching();
         _queryText->sciScintilla()->setFont(font);
-        _queryText->sciScintilla()->setPaper(QColor(255, 0, 0, 127));
+        _queryText->sciScintilla()->setPaper(paper);
         _queryText->sciScintilla()->setLexer(javaScriptLexer);
+        _queryText->sciScintilla()->setCaretForegroundColor(text);
+        _queryText->sciScintilla()->setMarginsBackgroundColor(QColor("#f2f2f0"));
+        _queryText->sciScintilla()->setMarginsForegroundColor(QColor("#4d4d4d"));
+        _queryText->sciScintilla()->setCaretLineBackgroundColor(QColor("#fafaf8"));
+        _queryText->sciScintilla()->setSelectionBackgroundColor(QColor("#dcdcd7"));
+        _queryText->sciScintilla()->setSelectionForegroundColor(QColor("#202020"));
+        _queryText->sciScintilla()->setMatchedBraceForegroundColor(QColor("#262626"));
+        _queryText->sciScintilla()->setMatchedBraceBackgroundColor(QColor("#e5e5e0"));
+        _queryText->sciScintilla()->setUnmatchedBraceForegroundColor(QColor("#8c3f47"));
+        _queryText->sciScintilla()->setUnmatchedBraceBackgroundColor(QColor("#f4eaea"));
+        _queryText->sciScintilla()->setIndentationGuidesForegroundColor(QColor("#d0d0cd"));
+        // JSON editing experience: keep the JavaScript lexer (JSON is a subset of JS)
+        // but enable editor behaviours similar to vue-json-pretty: folding,
+        // indentation, brace matching and clear structure navigation.
+        _queryText->sciScintilla()->setAutoIndent(true);
+        _queryText->sciScintilla()->setIndentationsUseTabs(false);
+        _queryText->sciScintilla()->setIndentationWidth(4);
+        _queryText->sciScintilla()->setIndentationGuides(true);
+        _queryText->sciScintilla()->setFolding(QsciScintilla::BoxedTreeFoldStyle);
         _queryText->sciScintilla()->setWrapMode((QsciScintilla::WrapMode)QsciScintilla::SC_WRAP_WORD);
         _queryText->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         _queryText->sciScintilla()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-        _queryText->sciScintilla()->setStyleSheet("QFrame { background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
+        _queryText->sciScintilla()->setObjectName("documentEditor");
+        _queryText->sciScintilla()->setStyleSheet(
+            "QFrame#documentEditor { background-color: #fcfcfa; border: 1px solid #d0d0cd; border-radius: 4px; margin: 0; padding: 0; }"
+            "QFrame#documentEditor:focus { border-color: #999994; }");
     }
 
     void DocumentTextEditor::saveWindowSettings() const

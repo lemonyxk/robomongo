@@ -48,8 +48,8 @@ namespace Robomongo
         auto const AUTO_MODE_SIZE = QSize(500, 450);
         auto const MANUAL_MODE_SIZE = QSize(500, 400);
 
-        auto const SHOW_DETAILS = "<a href='error' style='color: #777777;'>Show details</a>";
-        auto const HIDE_DETAILS = "<a href='error' style='color: #777777;'>Hide details</a>";
+        auto const SHOW_DETAILS = "<a href='error' style='color: #666666;'>Show details</a>";
+        auto const HIDE_DETAILS = "<a href='error' style='color: #666666;'>Hide details</a>";
 
         // This structure represents the arguments as in "mongoexport.exe --help"
         // See http://docs.mongodb.org/manual/reference/program/mongoexport/ for more information

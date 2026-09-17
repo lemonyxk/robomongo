@@ -18,40 +18,40 @@ namespace Robomongo
         switch (style)
         {
         case Default:
-            return QColor("#243247");
+            return QColor("#444444");
 
         case Comment:
         case CommentLine:
         case CommentDoc:
         case CommentLineDoc:
-            return QColor("#748398");
+            return QColor("#707070");
 
         case Number:
-            return QColor("#b15b20");
+            return QColor("#8b6e51");
 
         case Keyword:
-            return QColor("#6e50ad");
+            return QColor("#736684");
 
         case DoubleQuotedString:
         case SingleQuotedString:
         case RawString:
-            return QColor("#247c68");
+            return QColor("#557c69");
 
         case PreProcessor:
-            return QColor("#356fa8");
+            return QColor("#666666");
 
         case Operator:
-            return QColor("#50657e");
+            return QColor("#626262");
 
         case Regex:
-            return QColor("#a04877");
+            return QColor("#896b7b");
 
         case CommentDocKeyword:
-            return QColor("#356fa8");
+            return QColor("#666666");
 
         case UnclosedString:
         case CommentDocKeywordError:
-            return QColor("#bd4052");
+            return QColor("#a6535c");
 
         case InactiveDefault:
         case InactiveUUID:
@@ -74,10 +74,10 @@ namespace Robomongo
         case InactiveUnclosedString:
         case InactiveVerbatimString:
         case InactiveRegex:
-            return QColor("#8794a7");
+            return QColor("#818181");
         }
 
-        return QColor("#243247");
+        return QColor("#444444");
     }
 
     const char *JSLexer::keywords(int set) const

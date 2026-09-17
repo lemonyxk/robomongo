@@ -9,7 +9,7 @@
 #include <QKeyEvent>
 #include <QPointer>
 #include <QLabel>
-#include <QPlainTextEdit>
+#include "robomongo/gui/editors/PlainJavaScriptEditor.h"
 #include <QSettings>
 #include <QTabBar>
 #include <QTimer>
@@ -29,6 +29,7 @@
 #include "robomongo/gui/widgets/workarea/BsonTreeItem.h"
 #include "robomongo/gui/widgets/workarea/BsonTreeModel.h"
 #include "robomongo/gui/widgets/workarea/BsonTreeView.h"
+#include "robomongo/gui/editors/PlainJavaScriptEditor.h"
 #include "robomongo/gui/widgets/workarea/JsonPrepareThread.h"
 #include "robomongo/gui/widgets/workarea/OutputItemContentWidget.h"
 #include "robomongo/gui/widgets/workarea/OutputWidget.h"
@@ -216,7 +217,7 @@ TEST_F(OutputWidgetTest, DoubleClickEditsTheClickedTreeOrTableValue)
     auto *editor = tree->findChild<FieldValueEditor*>();
     ASSERT_NE(editor, nullptr);
     EXPECT_EQ(editor->findChild<QLabel*>("fieldPath")->text(), "second");
-    EXPECT_EQ(editor->findChild<QPlainTextEdit*>("fieldValueInput")->toPlainText(), "two");
+    EXPECT_EQ(editor->findChild<RoboScintilla*>("fieldValueInput")->text(), "two");
     editor->reject();
     QCoreApplication::sendPostedEvents(editor, QEvent::DeferredDelete);
 
@@ -230,7 +231,7 @@ TEST_F(OutputWidgetTest, DoubleClickEditsTheClickedTreeOrTableValue)
     editor = table->findChild<FieldValueEditor*>();
     ASSERT_NE(editor, nullptr);
     EXPECT_EQ(editor->findChild<QLabel*>("fieldPath")->text(), "second");
-    EXPECT_EQ(editor->findChild<QPlainTextEdit*>("fieldValueInput")->toPlainText(), "two");
+    EXPECT_EQ(editor->findChild<RoboScintilla*>("fieldValueInput")->text(), "two");
     editor->reject();
 }
 
@@ -253,7 +254,7 @@ TEST_F(OutputWidgetTest, NestedArrayFieldUsesItsFullPath)
     auto *editor = tree->findChild<FieldValueEditor*>();
     ASSERT_NE(editor, nullptr);
     EXPECT_EQ(editor->findChild<QLabel*>("fieldPath")->text(), "items.0.count");
-    EXPECT_EQ(editor->findChild<QPlainTextEdit*>("fieldValueInput")->toPlainText(), "9");
+    EXPECT_EQ(editor->findChild<RoboScintilla*>("fieldValueInput")->text(), "9");
     editor->reject();
 }
 
@@ -483,12 +484,12 @@ TEST(QueryContextBarTest, DisplaysLiteralNamesAndUpdatesErrorColorsWithoutMarkup
     bar.setCurrentDatabase("missing<&>", false);
     EXPECT_EQ(server->text(), "unavailable<&>");
     EXPECT_EQ(database->text(), "missing<&>");
-    EXPECT_EQ(server->textColor(), QColor("#bd4052"));
-    EXPECT_EQ(database->textColor(), QColor("#bd4052"));
+    EXPECT_EQ(server->textColor(), QColor("#a6535c"));
+    EXPECT_EQ(database->textColor(), QColor("#a6535c"));
     bar.setCurrentServer("mongo-27:27017", true);
     bar.setCurrentDatabase("Center", true);
-    EXPECT_NE(server->textColor(), QColor("#bd4052"));
-    EXPECT_NE(database->textColor(), QColor("#bd4052"));
+    EXPECT_NE(server->textColor(), QColor("#a6535c"));
+    EXPECT_NE(database->textColor(), QColor("#a6535c"));
     EXPECT_EQ(database->text(), "Center");
 }
 

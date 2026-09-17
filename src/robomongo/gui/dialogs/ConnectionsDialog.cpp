@@ -190,7 +190,7 @@ namespace Robomongo
             importLabelIcon->setPixmap(importPixmap);
             QString importedRecords = importedCount > 1 ? "records" : "record";
             QLabel *importLabelMessage = new QLabel(QString(
-                "<span style='color: #777777;'>"
+                "<span style='color: #6d6d6d;'>"
                 "Connection settings have been imported (%1 %2)"
                 "</span>").arg(importedCount).arg(importedRecords));
 
@@ -205,7 +205,7 @@ namespace Robomongo
             "<a style='color: %1' href='edit'>edit</a>, "
             "<a style='color: %1' href='remove'>remove</a>, "
             "<a style='color: %1' href='clone'>clone</a> "
-            "or reorder connections via drag'n'drop.").arg("#247c68"));
+            "or reorder connections via drag'n'drop.").arg("#666666"));
         intro->setWordWrap(true);
 
         VERIFY(connect(intro, SIGNAL(linkActivated(QString)), this, SLOT(linkActivated(QString))));

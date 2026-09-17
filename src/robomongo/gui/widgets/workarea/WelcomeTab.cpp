@@ -18,19 +18,19 @@ namespace Robomongo
         setObjectName("welcomePage");
         setAttribute(Qt::WA_StyledBackground, true);
         setStyleSheet(
-            "QWidget#welcomePage { background: #f4f6fa; }"
-            "QFrame#welcomeCard { background: white; border: 1px solid #dce3ec; border-radius: 12px; }"
-            "QLabel { background: transparent; color: #68788e; }"
-            "QLabel#welcomeBrand { color: #247c68; font-weight: bold; }"
-            "QLabel#welcomeTitle { color: #243247; }"
-            "QLabel#welcomeStep { color: #247c68; font-weight: bold; }"
-            "QLabel#welcomeStepTitle { color: #243247; font-weight: bold; }"
-            "QLabel#welcomeShortcut { color: #243247; background: #f4f6fa; border-radius: 4px; padding: 5px 8px; }"
+            "QWidget#welcomePage { background: #efefef; }"
+            "QFrame#welcomeCard { background: #ffffff; border: 1px solid #d6d6d6; border-radius: 12px; }"
+            "QLabel { background: transparent; color: #6d6d6d; }"
+            "QLabel#welcomeBrand { color: #666666; font-weight: bold; }"
+            "QLabel#welcomeTitle { color: #444444; }"
+            "QLabel#welcomeStep { color: #666666; font-weight: bold; }"
+            "QLabel#welcomeStepTitle { color: #444444; font-weight: bold; }"
+            "QLabel#welcomeShortcut { color: #444444; background: #efefef; border-radius: 4px; padding: 5px 8px; }"
             "QPushButton { min-height: 28px; padding: 5px 14px; border-radius: 6px; }"
-            "QPushButton#welcomeConnect { color: white; background: #247c68; border: 1px solid #247c68; font-weight: bold; }"
-            "QPushButton#welcomeConnect:hover { background: #1d6958; border-color: #1d6958; }"
-            "QPushButton#welcomeConnect:pressed { background: #175747; }"
-            "QPushButton#welcomeConnect:focus { border: 2px solid #80bdae; }"
+            "QPushButton#welcomeConnect { color: #333333; background: #ededed; border: 1px solid #aaaaaa; }"
+            "QPushButton#welcomeConnect:hover { background: #e3e3e3; border-color: #999999; }"
+            "QPushButton#welcomeConnect:pressed { background: #d9d9d9; }"
+            "QPushButton#welcomeConnect:focus { border-color: #666666; }"
         );
 
         auto *card = new QFrame(this);

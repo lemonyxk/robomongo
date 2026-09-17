@@ -53,7 +53,7 @@ namespace Robomongo
         _listIconLabel = new QLabel;
         _listLabel = new QLabel;
 
-        _viewErrorLink = new QLabel("<a href='error' style='color: #777777;'>Show error details</a>");
+        _viewErrorLink = new QLabel("<a href='error' style='color: #666666;'>Show error details</a>");
         VERIFY(connect(_viewErrorLink, SIGNAL(linkActivated(QString)), this, SLOT(errorLinkActivated(QString))));
 
         _loadingMovie = new QMovie(":robomongo/icons/loading_ticks_40x40.gif", QByteArray(), this);

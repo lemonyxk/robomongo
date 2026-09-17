@@ -422,12 +422,12 @@ namespace Robomongo
         javaScriptLexer->setFont(font);
         frame->sciScintilla()->setBraceMatching(QsciScintilla::StrictBraceMatch);
         frame->sciScintilla()->setFont(font);
-        frame->sciScintilla()->setPaper(QColor(255, 0, 0, 127));
+        frame->sciScintilla()->setPaper(QColor("#ffffff"));
         frame->sciScintilla()->setLexer(javaScriptLexer);
         frame->sciScintilla()->setWrapMode((QsciScintilla::WrapMode)QsciScintilla::SC_WRAP_WORD);
         frame->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         frame->sciScintilla()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        frame->sciScintilla()->setStyleSheet("QFrame { background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
+        frame->sciScintilla()->setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #d6d6d6; border-radius: 4px; margin: 0px; padding: 0px;}");
     }
 
     bool CreateCollectionDialog::validate(JSONFrame* frame, mongo::BSONObj& bsonObj, bool silentOnSuccess /* = true */)

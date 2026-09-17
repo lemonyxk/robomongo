@@ -2,17 +2,20 @@
 
 #include <QDialog>
 #include <QRect>
+#include <QPoint>
 #include "robomongo/core/bson/Bson.h"
 
 class QCloseEvent;
 class QDialogButtonBox;
 class QLabel;
-class QPlainTextEdit;
 class QScrollArea;
 class QShowEvent;
+class QMouseEvent;
 
 namespace Robomongo
 {
+    class RoboScintilla;
+
     class FieldValueEditor : public QDialog
     {
         Q_OBJECT
@@ -36,6 +39,9 @@ namespace Robomongo
         bool eventFilter(QObject *watched, QEvent *event) override;
         void showEvent(QShowEvent *event) override;
         void closeEvent(QCloseEvent *event) override;
+        void mousePressEvent(QMouseEvent *event) override;
+        void mouseMoveEvent(QMouseEvent *event) override;
+        void mouseReleaseEvent(QMouseEvent *event) override;
 
     private:
         mongo::BSONObj parseValue() const;
@@ -47,7 +53,7 @@ namespace Robomongo
 
         mongo::BSONObj _originalOwner;
         mongo::BSONElement _original;
-        QPlainTextEdit *_input;
+        RoboScintilla *_input;
         QLabel *_error;
         QLabel *_hint;
         QDialogButtonBox *_buttons;
@@ -59,5 +65,7 @@ namespace Robomongo
         QString _requestId;
         bool _saving = false;
         bool _focusCheckQueued = false;
+        QPoint _dragPosition;
+        bool _dragging = false;
     };
 }

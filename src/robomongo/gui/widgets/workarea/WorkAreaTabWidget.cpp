@@ -37,8 +37,8 @@ namespace Robomongo
 
         setObjectName("workAreaTabs");
         setStyleSheet(
-            "QTabWidget#workAreaTabs { background: #f4f6f8; margin: 0; padding: 0; }"
-            "QTabWidget#workAreaTabs::pane { border: none; background: white; margin: 0; padding: 0; }"
+            "QTabWidget#workAreaTabs { background: #ededed; margin: 0; padding: 0; }"
+            "QTabWidget#workAreaTabs::pane { border: none; background: #ffffff; margin: 0; padding: 0; }"
             "QTabWidget#workAreaTabs::tab-bar { alignment: left; top: 0; left: 0; }"
         );
 
@@ -75,8 +75,8 @@ namespace Robomongo
         // its child tabs and scroll buttons are drawn over this surface later.
         const int headerHeight = tabBar()->geometry().bottom() + 1;
         QPainter painter(this);
-        painter.fillRect(QRect(0, 0, width(), headerHeight), QColor("#f4f6f8"));
-        painter.setPen(QColor("#e2e8ee"));
+        painter.fillRect(QRect(0, 0, width(), headerHeight), QColor("#ededed"));
+        painter.setPen(QColor("#d6d6d6"));
         painter.drawLine(0, headerHeight - 1, width(), headerHeight - 1);
     }
 

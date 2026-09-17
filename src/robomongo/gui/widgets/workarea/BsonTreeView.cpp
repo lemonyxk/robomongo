@@ -16,6 +16,7 @@ namespace Robomongo
         : BaseClass(parent), _notifier(this, shell, queryInfo), 
           _outputItemContentWidget(dynamic_cast<const OutputItemContentWidget*>(parent))
     {
+        setObjectName("resultTree");
 #if defined(Q_OS_MAC)
         setAttribute(Qt::WA_MacShowFocusRect, false);
 #endif

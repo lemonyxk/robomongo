@@ -19,8 +19,8 @@ namespace
     QFrame *createVerticalLine()
     {
         QFrame *vline = new QFrame();
-        vline->setFixedSize(1, 18);
-        vline->setStyleSheet("background: #dce3ec; border: none;");
+        vline->setFixedSize(1, 16);
+        vline->setStyleSheet("background: #d6d6d6; border: none;");
         return vline;
     }
 }
@@ -39,13 +39,13 @@ namespace Robomongo
         setObjectName("resultHeader");
         setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         setStyleSheet(
-            "QFrame#resultHeader { background: #f8fafc; border: none; border-bottom: 1px solid #dce3ec; }"
+            "QFrame#resultHeader { background: #ffffff; border: none; border-bottom: 1px solid #d6d6d6; }"
             "QFrame#resultHeader QPushButton { padding: 0; min-width: 0; min-height: 0;"
-                "background: transparent; border: 1px solid transparent; border-radius: 5px; }"
-            "QFrame#resultHeader QPushButton:hover { background: #e8eef4; }"
-            "QFrame#resultHeader QPushButton:checked { background: #e1f1eb; border-color: #b9dace; }"
-            "QFrame#resultHeader QPushButton:pressed { background: #d4e9e1; }"
-            "QFrame#resultHeader QPushButton:focus { border-color: #247c68; }"
+                "background: transparent; border: 1px solid transparent; border-radius: 2px; }"
+            "QFrame#resultHeader QPushButton:hover { background: #eeeeee; }"
+            "QFrame#resultHeader QPushButton:checked { background: #dedede; border-color: #cccccc; }"
+            "QFrame#resultHeader QPushButton:pressed { background: #dedede; }"
+            "QFrame#resultHeader QPushButton:focus { border-color: #999999; }"
         );
 
         auto const* outputWidget = qobject_cast<OutputWidget*>(outputItemContentWidget->parentWidget());
@@ -55,7 +55,7 @@ namespace Robomongo
         _textButton = new QPushButton(this);
         _textButton->setIcon(GuiRegistry::instance().textIcon());
         _textButton->setToolTip("View results in text mode");
-        _textButton->setFixedSize(28, 28);
+        _textButton->setFixedSize(24, 24);
         _textButton->setFlat(true);
         _textButton->setCheckable(true);
 
@@ -64,7 +64,7 @@ namespace Robomongo
         _treeButton->hide();
         _treeButton->setIcon(GuiRegistry::instance().treeIcon());
         _treeButton->setToolTip("View results in tree mode");
-        _treeButton->setFixedSize(28, 28);
+        _treeButton->setFixedSize(24, 24);
         _treeButton->setFlat(true);
         _treeButton->setCheckable(true);
         _treeButton->setChecked(true);     
@@ -74,7 +74,7 @@ namespace Robomongo
         _tableButton->hide();
         _tableButton->setIcon(GuiRegistry::instance().tableIcon());
         _tableButton->setToolTip("View results in table mode");
-        _tableButton->setFixedSize(28, 28);
+        _tableButton->setFixedSize(24, 24);
         _tableButton->setFlat(true);
         _tableButton->setCheckable(true);
         _tableButton->setChecked(true);       
@@ -84,7 +84,7 @@ namespace Robomongo
         _customButton->hide();
         _customButton->setIcon(GuiRegistry::instance().customIcon());
         _customButton->setToolTip("View results in custom UI");
-        _customButton->setFixedSize(28, 28);
+        _customButton->setFixedSize(24, 24);
         _customButton->setFlat(true);
         _customButton->setCheckable(true);
 
@@ -93,7 +93,7 @@ namespace Robomongo
             _maxButton = new QPushButton;
             _maxButton->setIcon(GuiRegistry::instance().maximizeIcon());
             _maxButton->setToolTip("Maximize this output result (double-click on result's header)");
-            _maxButton->setFixedSize(28, 28);
+            _maxButton->setFixedSize(24, 24);
             _maxButton->setFlat(true);
             VERIFY(connect(_maxButton, SIGNAL(clicked()), this, SLOT(maximizeMinimizePart())));
         }
@@ -102,7 +102,7 @@ namespace Robomongo
         auto queryWidget = dockWidget->getParentQueryWidget();
         
         _dockUndockButton = new QPushButton;
-        _dockUndockButton->setFixedSize(28, 28);
+        _dockUndockButton->setFixedSize(24, 24);
         _dockUndockButton->setFlat(true);
         _dockUndockButton->setHidden(true);
         applyDockUndockSettings(!dockWidget->isFloating());
@@ -130,8 +130,8 @@ namespace Robomongo
         _paging->hide();
 
         QHBoxLayout *layout = new QHBoxLayout();
-        layout->setContentsMargins(10, 5, 8, 5);
-        layout->setSpacing(4);
+        layout->setContentsMargins(6, 3, 6, 3);
+        layout->setSpacing(3);
         layout->addWidget(_collectionIndicator);
         layout->addWidget(_timeIndicator);
         layout->addStretch(1);
@@ -185,7 +185,7 @@ namespace Robomongo
 
     void OutputItemHeaderWidget::showText()
     {
-        _textButton->setIcon(GuiRegistry::instance().textHighlightedIcon());
+        _textButton->setIcon(GuiRegistry::instance().textIcon());
         _textButton->setChecked(true);
         _treeButton->setIcon(GuiRegistry::instance().treeIcon());
         _treeButton->setChecked(false);
@@ -199,7 +199,7 @@ namespace Robomongo
     {
         _textButton->setIcon(GuiRegistry::instance().textIcon());
         _textButton->setChecked(false);
-        _treeButton->setIcon(GuiRegistry::instance().treeHighlightedIcon());
+        _treeButton->setIcon(GuiRegistry::instance().treeIcon());
         _treeButton->setChecked(true);
         _tableButton->setIcon(GuiRegistry::instance().tableIcon());
         _tableButton->setChecked(false);
@@ -213,7 +213,7 @@ namespace Robomongo
         _textButton->setChecked(false);
         _treeButton->setIcon(GuiRegistry::instance().treeIcon());
         _treeButton->setChecked(false);
-        _tableButton->setIcon(GuiRegistry::instance().tableHighlightedIcon());
+        _tableButton->setIcon(GuiRegistry::instance().tableIcon());
         _tableButton->setChecked(true);
         _customButton->setIcon(GuiRegistry::instance().customIcon());
         _customButton->setChecked(false);
@@ -227,7 +227,7 @@ namespace Robomongo
         _treeButton->setChecked(false);
         _tableButton->setIcon(GuiRegistry::instance().tableIcon());
         _tableButton->setChecked(false);
-        _customButton->setIcon(GuiRegistry::instance().customHighlightedIcon());
+        _customButton->setIcon(GuiRegistry::instance().customIcon());
         _customButton->setChecked(true);
     }
 

@@ -146,8 +146,8 @@ namespace Robomongo
                                          _shell->server()->connectionRecord()->getFullAddress(), "loading...");
 
         QVBoxLayout *layout = new QVBoxLayout;
-        layout->setSpacing(0);
-        layout->setContentsMargins(8, 0, 8, 6);
+        layout->setSpacing(6);
+        layout->setContentsMargins(8, 4, 8, 8);
         layout->addWidget(_topStatusBar, 0, Qt::AlignTop);
         layout->addWidget(_queryText);
         setLayout(layout);
@@ -593,9 +593,13 @@ namespace Robomongo
         _queryText->sciScintilla()->setAutoPairingEnabled(true);
 
         _queryText->sciScintilla()->setObjectName("queryEditor");
+        // Keep query text away from the editor frame. QScintilla does not
+        // support QWidget padding, use Scintilla's text margins instead.
+        _queryText->sciScintilla()->SendScintilla(QsciScintilla::SCI_SETMARGINLEFT, 0, 4);
+        _queryText->sciScintilla()->SendScintilla(QsciScintilla::SCI_SETMARGINRIGHT, 0, 4);
         _queryText->sciScintilla()->setStyleSheet(
-            "QFrame#queryEditor {background-color: #ffffff; border: 1px solid #dce3ec; border-radius: 5px;}"
-            "QFrame#queryEditor:focus {border-color: #247c68;}");
+            "QFrame#queryEditor {background-color: #ffffff; border: 1px solid #d6d6d6; border-radius: 4px;}"
+            "QFrame#queryEditor:focus {border-color: #999999;}");
         VERIFY(connect(_queryText->sciScintilla(), SIGNAL(linesChanged()), SLOT(ui_queryLinesCountChanged())));
         VERIFY(connect(_queryText->sciScintilla(), SIGNAL(fontSettingsChanged()), SLOT(onFontSettingsChanged())));
         VERIFY(connect(_queryText->sciScintilla(), SIGNAL(textChanged()), SLOT(onTextChanged())));
@@ -678,17 +682,14 @@ namespace Robomongo
     {
         setObjectName("queryContextBar");
         setContentsMargins(0, 0, 0, 0);
-        _textColor = QColor("#748398");
+        _textColor = QColor("#666666");
 
         // Indicators paint plain text. Keep presentation state separate from
         // connection data instead of passing QLabel's old HTML markup to them.
         _currentConnectionLabel = new Indicator(QIcon(), QString::fromStdString(connectionName));
         _currentConnectionLabel->setObjectName("connectionContext");
         _currentConnectionLabel->setMaximumWidth(200);
-        _currentConnectionLabel->setTextColor(QColor("#405269"));
-        QFont connectionFont = font();
-        connectionFont.setWeight(QFont::Medium);
-        _currentConnectionLabel->setFont(connectionFont);
+        _currentConnectionLabel->setTextColor(QColor("#444444"));
 
         _currentServerLabel = new Indicator(QIcon());
         _currentServerLabel->setObjectName("serverContext");
@@ -698,15 +699,14 @@ namespace Robomongo
         _currentDatabaseLabel = new Indicator(QIcon());
         _currentDatabaseLabel->setObjectName("databaseContext");
         _currentDatabaseLabel->setMaximumWidth(240);
-        _currentDatabaseLabel->setFont(connectionFont);
         setCurrentDatabase(dbName);
 
         auto *topLayout = new QHBoxLayout(this);
-        topLayout->setSpacing(10);
-        topLayout->setContentsMargins(2, 6, 2, 6);
+        topLayout->setSpacing(12);
+        topLayout->setContentsMargins(12, 6, 12, 6);
         auto addSeparator = [this, topLayout]() {
             auto *separator = new QLabel(QStringLiteral("/"), this);
-            separator->setStyleSheet("color: #b1bbc9; background: transparent;");
+            separator->setStyleSheet("color: #aaaaaa; background: transparent;");
             topLayout->addWidget(separator);
         };
         topLayout->addWidget(_currentConnectionLabel);
@@ -719,13 +719,13 @@ namespace Robomongo
 
     void TopStatusBar::setCurrentDatabase(const std::string &database, bool isValid)
     {
-        _currentDatabaseLabel->setTextColor(QColor(isValid ? "#247c68" : "#bd4052"));
+        _currentDatabaseLabel->setTextColor(QColor(isValid ? "#444444" : "#a6535c"));
         _currentDatabaseLabel->setText(QString::fromStdString(database));
     }
 
     void TopStatusBar::setCurrentServer(const std::string &address, bool isValid)
     {
-        _currentServerLabel->setTextColor(isValid ? _textColor : QColor("#bd4052"));
+        _currentServerLabel->setTextColor(isValid ? _textColor : QColor("#a6535c"));
         _currentServerLabel->setText(QString::fromStdString(detail::prepareServerAddress(address)));
     }
 }

@@ -21,7 +21,7 @@ namespace Robomongo
         QTabWidget(parent), _splitter(new QSplitter), _tabbedResults(false), _prevResultsCount(0)
     {
         _splitter->setOrientation(Qt::Vertical);
-        _splitter->setHandleWidth(4);
+        _splitter->setHandleWidth(3);
         _splitter->setOpaqueResize(false);
         _splitter->setContentsMargins(0, 0, 0, 0);
 
@@ -279,17 +279,20 @@ namespace Robomongo
     QString OutputWidget::buildStyleSheet()
     {
         return QStringLiteral(R"qss(
-QTabWidget#resultTabs::pane { background: white; border: none; }
+QTabWidget#resultTabs { background: #ffffff; }
+QTabWidget#resultTabs::pane { background: #ffffff; border: none; }
 QTabWidget#resultTabs::tab-bar { alignment: left; }
+QTabBar#resultTabBar { background: #ededed; }
 QTabBar#resultTabBar::tab {
-    background: #edf1f6; color: #68788e; padding: 6px 10px;
-    border: none; border-top: 2px solid transparent; border-right: 1px solid #dce3ec;
-    min-width: 72px; max-width: 240px;
+    background: #ededed; color: #666666; padding: 6px 14px;
+    border: none; border-bottom: 1px solid #d6d6d6; border-right: 1px solid #d6d6d6;
+    min-width: 84px; max-width: 260px;
 }
-QTabBar#resultTabBar::tab:hover { background: #e5ecf3; color: #243247; }
-QTabBar#resultTabBar::tab:selected { background: white; color: #195c4d; border-top-color: #247c68; }
+QTabBar#resultTabBar::tab:hover { background: #eeeeee; color: #444444; }
+QTabBar#resultTabBar::tab:selected { background: #ffffff; color: #444444; border-bottom-color: #ffffff; }
 QTabBar#resultTabBar::close-button { image: url(:/robomongo/icons/close_2_16x16.png); width: 16px; height: 16px; }
-QTabBar#resultTabBar::close-button:hover { image: url(:/robomongo/icons/close_hover_16x16.png); }
+QTabBar#resultTabBar::close-button:hover { background: #eeeeee; border-radius: 2px; }
+QTabBar#resultTabBar::close-button:pressed { background: #dedede; }
 )qss");
     }
 

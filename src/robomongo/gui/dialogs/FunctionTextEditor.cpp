@@ -101,12 +101,12 @@ namespace Robomongo
         javaScriptLexer->setFont(textFont);        
         _queryText->sciScintilla()->setAppropriateBraceMatching();
         _queryText->sciScintilla()->setFont(textFont);
-        _queryText->sciScintilla()->setPaper(QColor(255, 0, 0, 127));
+        _queryText->sciScintilla()->setPaper(QColor("#ffffff"));
         _queryText->sciScintilla()->setLexer(javaScriptLexer);
         _queryText->sciScintilla()->setWrapMode((QsciScintilla::WrapMode)QsciScintilla::SC_WRAP_WORD);
         _queryText->sciScintilla()->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         _queryText->sciScintilla()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-        _queryText->sciScintilla()->setStyleSheet("QFrame { background-color: white; border: 1px solid #dce3ec; border-radius: 4px; margin: 0px; padding: 0px;}");
+        _queryText->sciScintilla()->setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #d6d6d6; border-radius: 4px; margin: 0px; padding: 0px;}");
     }
 }

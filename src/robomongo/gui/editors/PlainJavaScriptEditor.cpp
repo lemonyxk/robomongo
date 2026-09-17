@@ -52,9 +52,9 @@ namespace
 
 namespace Robomongo
 {
-    const QColor RoboScintilla::marginsBackgroundColor = QColor("#f4f6fa");
-    const QColor RoboScintilla::caretForegroundColor = QColor("#243247");
-    const QColor RoboScintilla::matchedBraceForegroundColor = QColor("#247c68");
+    const QColor RoboScintilla::marginsBackgroundColor = QColor("#f5f5f5");
+    const QColor RoboScintilla::caretForegroundColor = QColor("#444444");
+    const QColor RoboScintilla::matchedBraceForegroundColor = QColor("#666666");
 
     RoboScintilla::RoboScintilla(QWidget *parent) : QsciScintilla(parent),
         _ignoreEnterKey(false),
@@ -72,21 +72,21 @@ namespace Robomongo
         setMarginWidth(1, 0);
         setCaretForegroundColor(caretForegroundColor);
         setMatchedBraceForegroundColor(matchedBraceForegroundColor);
-        setMatchedBraceBackgroundColor(QColor("#dcefe8"));
-        setUnmatchedBraceForegroundColor(QColor("#bd4052"));
-        setUnmatchedBraceBackgroundColor(QColor("#fdecef"));
+        setMatchedBraceBackgroundColor(QColor("#dedede"));
+        setUnmatchedBraceForegroundColor(QColor("#a6535c"));
+        setUnmatchedBraceBackgroundColor(QColor("#f8eeee"));
         setPaper(QColor("#ffffff"));
         setColor(caretForegroundColor);
-        setSelectionBackgroundColor(QColor("#dcefe8"));
-        setSelectionForegroundColor(caretForegroundColor);
-        setCaretLineBackgroundColor(QColor("#f4f8f7"));
+        setSelectionBackgroundColor(QColor("#dedede"));
+        setSelectionForegroundColor(QColor("#333333"));
+        setCaretLineBackgroundColor(QColor("#f8f8f8"));
         setCaretLineVisible(true);
-        setIndentationGuidesForegroundColor(QColor("#dce3ec"));
+        setIndentationGuidesForegroundColor(QColor("#d6d6d6"));
         setContentsMargins(0, 0, 0, 0);
         setViewportMargins(3, 3, 3, 3);
         setMarginLineNumbers(0, true);
         setMarginsBackgroundColor(marginsBackgroundColor);
-        setMarginsForegroundColor(QColor("#8794a7"));
+        setMarginsForegroundColor(QColor("#707070"));
 
         // Retain layout for visible lines without caching the entire document.
         SendScintilla(SCI_SETLAYOUTCACHE, SC_CACHE_PAGE);

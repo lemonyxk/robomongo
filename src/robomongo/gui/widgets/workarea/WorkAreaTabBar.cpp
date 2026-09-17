@@ -38,11 +38,11 @@ namespace Robomongo
                 painter.setRenderHint(QPainter::Antialiasing);
                 if (underMouse() || isDown()) {
                     painter.setPen(Qt::NoPen);
-                    painter.setBrush(isDown() ? QColor("#d7e1e6") : QColor("#e5ebef"));
-                    painter.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 4, 4);
+                    painter.setBrush(isDown() ? QColor("#dedede") : QColor("#eeeeee"));
+                    painter.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 2, 2);
                 }
 
-                const QColor color = underMouse() ? QColor("#34465b") : QColor("#8793a2");
+                const QColor color = underMouse() ? QColor("#444444") : QColor("#888888");
                 painter.setPen(QPen(color, 1.4, Qt::SolidLine, Qt::RoundCap));
                 painter.drawLine(QPointF(6, 6), QPointF(12, 12));
                 painter.drawLine(QPointF(12, 6), QPointF(6, 12));
@@ -100,8 +100,8 @@ namespace Robomongo
 
         QPainter painter(this);
         painter.setClipRegion(unusedArea);
-        painter.fillRect(rect(), QColor("#f4f6f8"));
-        painter.setPen(QColor("#e2e8ee"));
+        painter.fillRect(rect(), QColor("#ededed"));
+        painter.setPen(QColor("#d6d6d6"));
         painter.drawLine(0, height() - 1, width(), height() - 1);
     }
 
@@ -136,12 +136,12 @@ namespace Robomongo
     QSize WorkAreaTabBar::tabSizeHint(int index) const
     {
         const QSize preferred = QTabBar::tabSizeHint(index);
-        return QSize(qBound(132, preferred.width(), 236), qMax(36, fontMetrics().height() + 16));
+        return QSize(qBound(132, preferred.width(), 236), qMax(28, fontMetrics().height() + 10));
     }
 
     QSize WorkAreaTabBar::minimumTabSizeHint(int) const
     {
-        return QSize(112, qMax(36, fontMetrics().height() + 16));
+        return QSize(112, qMax(28, fontMetrics().height() + 10));
     }
 
     /**
@@ -241,24 +241,25 @@ namespace Robomongo
     QString WorkAreaTabBar::buildStyleSheet()
     {
         return QStringLiteral(
-            "QTabBar { background: #f4f6f8; }"
+            "QTabBar { background: #ededed; }"
             "QTabBar::tab {"
-                "color: #718096; background: #f4f6f8;"
-                "border: none; border-right: 1px solid #e2e8ee;"
-                "border-bottom: 2px solid transparent;"
-                "padding: 0 12px; margin: 0;"
+                "color: #666666; background: #ededed;"
+                "border: none; border-right: 1px solid #d6d6d6;"
+                "border-bottom: 1px solid #d6d6d6;"
+                "padding: 4px 16px; margin: 0; min-height: 34px;"
             "}"
-            "QTabBar::tab:hover { color: #34465b; background: #eaf0f4; }"
+            "QTabBar::tab:hover { color: #444444; background: #eeeeee; }"
             "QTabBar::tab:selected {"
-                "color: #243247; background: white;"
-                "border-bottom-color: #24866f;"
+                "color: #444444; background: #ffffff;"
+                "border-bottom-color: #ffffff;"
             "}"
             "QTabBar QToolButton {"
-                "color: #53647a; background: #f4f6f8;"
-                "border: none; border-left: 1px solid #e2e8ee;"
+                "color: #666666; background: #ededed;"
+                "border: none; border-left: 1px solid #d6d6d6;"
                 "border-radius: 0; padding: 0;"
             "}"
-            "QTabBar QToolButton:hover { background: #e5ebef; }"
+            "QTabBar QToolButton:hover { background: #eeeeee; }"
+            "QTabBar QToolButton:pressed { background: #dedede; }"
         );
     }
 }

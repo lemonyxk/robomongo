@@ -25,6 +25,6 @@ namespace Robomongo
     private:
         QIcon _icon;
         QString _text;
-        QColor _textColor = QColor("#68788e");
+        QColor _textColor = QColor("#6d6d6d");
     };
 }

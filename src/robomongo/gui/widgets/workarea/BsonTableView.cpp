@@ -17,6 +17,7 @@ namespace Robomongo
     BsonTableView::BsonTableView(MongoShell *shell, const MongoQueryInfo &queryInfo, QWidget *parent) 
         :BaseClass(parent), _notifier(this, shell, queryInfo)
     {
+        setObjectName("resultTable");
 #if defined(Q_OS_MAC)
         setAttribute(Qt::WA_MacShowFocusRect, false);
 #endif
@@ -30,8 +31,8 @@ namespace Robomongo
         verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
         horizontalHeader()->setDefaultAlignment(Qt::AlignLeft);
         horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-        horizontalHeader()->setDefaultSectionSize(180);
-        horizontalHeader()->setMinimumSectionSize(64);
+        horizontalHeader()->setDefaultSectionSize(220);
+        horizontalHeader()->setMinimumSectionSize(96);
 
         setSelectionMode(QAbstractItemView::ExtendedSelection);
         setSelectionBehavior(QAbstractItemView::SelectItems);
@@ -50,7 +51,7 @@ namespace Robomongo
         header->setMinimumSectionSize(-1);
         const int minimumHeight = qMax(18, qMax(header->minimumSectionSize(), fontMetrics().height() + 4));
         const int configuredHeight = AppRegistry::instance().settingsManager()->tableRowHeight();
-        const int rowHeight = configuredHeight > 0 ? configuredHeight : qMax(28, fontMetrics().height() + 10);
+        const int rowHeight = configuredHeight > 0 ? configuredHeight : qMax(22, fontMetrics().height() + 4);
         header->setMinimumSectionSize(minimumHeight);
         header->setDefaultSectionSize(qMax(minimumHeight, rowHeight));
     }

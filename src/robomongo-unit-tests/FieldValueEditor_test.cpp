@@ -8,7 +8,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
-#include <QPlainTextEdit>
+#include "robomongo/gui/editors/PlainJavaScriptEditor.h"
 #include <QPushButton>
 
 #include "robomongo/core/bson/Bson.h"
@@ -28,7 +28,7 @@ protected:
     std::vector<FieldSaveRequest> requests;
     int savedCount = 0;
     std::unique_ptr<FieldValueEditor> editor;
-    QPlainTextEdit *input = nullptr;
+    RoboScintilla *input = nullptr;
     QLabel *error = nullptr;
     QDialogButtonBox *buttons = nullptr;
 
@@ -36,7 +36,7 @@ protected:
     {
         editor = std::make_unique<FieldValueEditor>(
             QStringLiteral("profile.value"), document["value"]);
-        input = editor->findChild<QPlainTextEdit*>("fieldValueInput");
+        input = editor->findChild<RoboScintilla*>("fieldValueInput");
         error = editor->findChild<QLabel*>("fieldEditError");
         buttons = editor->findChild<QDialogButtonBox*>("fieldEditButtons");
         QObject::connect(editor.get(), &FieldValueEditor::saveRequested,
@@ -61,7 +61,7 @@ TEST_F(FieldValueEditorTest, ShowsFieldPathTypeAndOriginalString)
     ASSERT_NE(type, nullptr);
     EXPECT_EQ(path->text(), QStringLiteral("profile.value"));
     EXPECT_FALSE(type->text().isEmpty());
-    EXPECT_EQ(input->toPlainText(), QStringLiteral("original value"));
+    EXPECT_EQ(input->text(), QStringLiteral("original value"));
 }
 
 TEST_F(FieldValueEditorTest, CancelAndWindowCloseDiscardInputWithoutSaving)
@@ -69,7 +69,7 @@ TEST_F(FieldValueEditorTest, CancelAndWindowCloseDiscardInputWithoutSaving)
     for (bool closeWindow : {false, true}) {
         SCOPED_TRACE(closeWindow);
         ASSERT_TRUE(open(BSON("value" << "original")));
-        input->setPlainText("changed but discarded");
+        input->setText("changed but discarded");
         if (closeWindow)
             editor->close();
         else
@@ -84,7 +84,7 @@ TEST_F(FieldValueEditorTest, CancelAndWindowCloseDiscardInputWithoutSaving)
 TEST_F(FieldValueEditorTest, OutsideClickDiscardsInputWithoutSaving)
 {
     ASSERT_TRUE(open(BSON("value" << "original")));
-    input->setPlainText("discard this edit");
+    input->setText("discard this edit");
     QWidget outside;
     QMouseEvent click(QEvent::MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
@@ -97,7 +97,7 @@ TEST_F(FieldValueEditorTest, OutsideClickDiscardsInputWithoutSaving)
 TEST_F(FieldValueEditorTest, ExternalFocusDiscardsInputWithoutSaving)
 {
     ASSERT_TRUE(open(BSON("value" << "original")));
-    input->setPlainText("discard this edit");
+    input->setText("discard this edit");
     QWidget outside;
     QFocusEvent focus(QEvent::FocusIn, Qt::OtherFocusReason);
     QApplication::sendEvent(&outside, &focus);
@@ -108,7 +108,7 @@ TEST_F(FieldValueEditorTest, ExternalFocusDiscardsInputWithoutSaving)
 TEST_F(FieldValueEditorTest, InternalButtonAndContextMenuFocusKeepEditorOpen)
 {
     ASSERT_TRUE(open(BSON("value" << "original")));
-    input->setPlainText("still editing");
+    input->setText("still editing");
     QFocusEvent buttonFocus(QEvent::FocusIn, Qt::TabFocusReason);
     QApplication::sendEvent(buttons->button(QDialogButtonBox::Cancel), &buttonFocus);
     EXPECT_TRUE(editor->isVisible());
@@ -116,14 +116,14 @@ TEST_F(FieldValueEditorTest, InternalButtonAndContextMenuFocusKeepEditorOpen)
     QFocusEvent menuFocus(QEvent::FocusIn, Qt::PopupFocusReason);
     QApplication::sendEvent(&menu, &menuFocus);
     EXPECT_TRUE(editor->isVisible());
-    EXPECT_EQ(input->toPlainText(), QStringLiteral("still editing"));
+    EXPECT_EQ(input->text(), QStringLiteral("still editing"));
     EXPECT_TRUE(requests.empty());
 }
 
 TEST_F(FieldValueEditorTest, ApplicationDeactivationDiscardsInputWithoutSaving)
 {
     ASSERT_TRUE(open(BSON("value" << "original")));
-    input->setPlainText("discard this edit");
+    input->setText("discard this edit");
     QEvent deactivate(QEvent::ApplicationDeactivate);
     QApplication::sendEvent(qApp, &deactivate);
     EXPECT_FALSE(editor->isVisible());
@@ -133,7 +133,7 @@ TEST_F(FieldValueEditorTest, ApplicationDeactivationDiscardsInputWithoutSaving)
 TEST_F(FieldValueEditorTest, LosingFocusDoesNotCancelAnAlreadySentWrite)
 {
     ASSERT_TRUE(open(BSON("value" << 1)));
-    input->setPlainText("2");
+    input->setText("2");
     editor->accept();
     ASSERT_EQ(requests.size(), 1u);
     QWidget outside;
@@ -163,7 +163,7 @@ TEST_F(FieldValueEditorTest, JsonLookingStringRemainsLiteralString)
 {
     ASSERT_TRUE(open(BSON("value" << "original")));
     const QString text = QStringLiteral("{\"enabled\":false,\"count\":42}\nNumberLong(7)");
-    input->setPlainText(text);
+    input->setText(text);
     buttons->button(QDialogButtonBox::Ok)->click();
     ASSERT_EQ(requests.size(), 1u);
     EXPECT_FALSE(requests.front().id.isEmpty());
@@ -187,8 +187,8 @@ TEST_F(FieldValueEditorTest, UnchangedStringKeepsOriginalLineSeparators)
 TEST_F(FieldValueEditorTest, Int64BeyondJavascriptPrecisionIsExact)
 {
     ASSERT_TRUE(open(BSON("value" << 9007199254740993LL)));
-    EXPECT_EQ(input->toPlainText(), QStringLiteral("9007199254740993"));
-    input->setPlainText("9223372036854775807");
+    EXPECT_EQ(input->text(), QStringLiteral("9007199254740993"));
+    input->setText("9223372036854775807");
     editor->accept();
     ASSERT_EQ(requests.size(), 1u);
     ASSERT_EQ(requests.front().value["value"].type(), mongo::NumberLong);
@@ -204,11 +204,11 @@ TEST_F(FieldValueEditorTest, InvalidInt32InputDoesNotSubmit)
                                 QStringLiteral("true"),
                                 QStringLiteral("")}) {
         SCOPED_TRACE(text.toStdString());
-        input->setPlainText(text);
+        input->setText(text);
         editor->accept();
         EXPECT_TRUE(requests.empty());
         EXPECT_TRUE(editor->isVisible());
-        EXPECT_EQ(input->toPlainText(), text);
+        EXPECT_EQ(input->text(), text);
         EXPECT_FALSE(error->text().isEmpty());
         EXPECT_TRUE(buttons->button(QDialogButtonBox::Ok)->isEnabled());
     }
@@ -220,11 +220,11 @@ TEST_F(FieldValueEditorTest, Int64OverflowDoesNotSubmit)
     for (const QString &text : {QStringLiteral("9223372036854775808"),
                                 QStringLiteral("-9223372036854775809")}) {
         SCOPED_TRACE(text.toStdString());
-        input->setPlainText(text);
+        input->setText(text);
         editor->accept();
         EXPECT_TRUE(requests.empty());
         EXPECT_TRUE(editor->isVisible());
-        EXPECT_EQ(input->toPlainText(), text);
+        EXPECT_EQ(input->text(), text);
         EXPECT_FALSE(error->text().isEmpty());
     }
 }
@@ -232,12 +232,12 @@ TEST_F(FieldValueEditorTest, Int64OverflowDoesNotSubmit)
 TEST_F(FieldValueEditorTest, ChangingBooleanTypeDoesNotSubmit)
 {
     ASSERT_TRUE(open(BSON("value" << true)));
-    input->setPlainText("\"false\"");
+    input->setText("\"false\"");
     editor->accept();
     EXPECT_TRUE(requests.empty());
     EXPECT_TRUE(editor->isVisible());
     EXPECT_FALSE(error->text().isEmpty());
-    input->setPlainText("false");
+    input->setText("false");
     editor->accept();
     ASSERT_EQ(requests.size(), 1u);
     ASSERT_EQ(requests.front().value["value"].type(), mongo::Bool);
@@ -247,19 +247,19 @@ TEST_F(FieldValueEditorTest, ChangingBooleanTypeDoesNotSubmit)
 TEST_F(FieldValueEditorTest, FailurePreservesTextAndAllowsANewSaveRequest)
 {
     ASSERT_TRUE(open(BSON("value" << "original")));
-    input->setPlainText("keep this unsaved text");
+    input->setText("keep this unsaved text");
     editor->accept();
     ASSERT_EQ(requests.size(), 1u);
     const QString firstId = requests.front().id;
     editor->finishSave(firstId, "Permission denied");
     EXPECT_TRUE(editor->isVisible());
     EXPECT_EQ(savedCount, 0);
-    EXPECT_EQ(input->toPlainText(), QStringLiteral("keep this unsaved text"));
+    EXPECT_EQ(input->text(), QStringLiteral("keep this unsaved text"));
     EXPECT_TRUE(error->text().contains("Permission denied"));
     EXPECT_TRUE(buttons->button(QDialogButtonBox::Ok)->isEnabled());
     EXPECT_TRUE(buttons->button(QDialogButtonBox::Cancel)->isEnabled());
 
-    input->setPlainText("retry with this text");
+    input->setText("retry with this text");
     editor->accept();
     ASSERT_EQ(requests.size(), 2u);
     EXPECT_NE(requests.back().id, firstId);
@@ -278,7 +278,7 @@ TEST_F(FieldValueEditorTest, FailurePreservesTextAndAllowsANewSaveRequest)
 TEST_F(FieldValueEditorTest, PendingSaveDisablesButtonsAndIgnoresDuplicateConfirmation)
 {
     ASSERT_TRUE(open(BSON("value" << 1)));
-    input->setPlainText("2");
+    input->setText("2");
     editor->accept();
     ASSERT_EQ(requests.size(), 1u);
     EXPECT_FALSE(buttons->button(QDialogButtonBox::Ok)->isEnabled());
@@ -293,7 +293,7 @@ TEST_F(FieldValueEditorTest, PendingSaveDisablesButtonsAndIgnoresDuplicateConfir
 TEST_F(FieldValueEditorTest, OnlyMatchingSuccessfulReplyAcceptsDialogOnce)
 {
     ASSERT_TRUE(open(BSON("value" << 1)));
-    input->setPlainText("2");
+    input->setText("2");
     editor->accept();
     ASSERT_EQ(requests.size(), 1u);
     editor->finishSave("unrelated request", QString());
